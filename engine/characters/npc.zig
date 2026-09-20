@@ -4,6 +4,7 @@
 
 const Faction = @import("../factions/factions.zig").Faction;
 const TileMap = @import("../world/map.zig").TileMap;
+const Tiles = @import("../world/tiles.zig").Tiles;
 const moveBox = @import("../physics/collision.zig").moveBox;
 const Shots = @import("../weapons/weapon.zig").Shots;
 const Vec2 = @import("../math/vec2.zig").Vec2;
@@ -64,7 +65,7 @@ pub const Npc = struct {
         self.timer = 2 + rand.float(f32) * 3;
     }
 
-    pub fn update(self: *Npc, map: TileMap, rand: *std.Random, dt: f32, threat: ?Threat) void {
+    pub fn update(self: *Npc, tiles: Tiles, rand: *std.Random, dt: f32, threat: ?Threat) void {
         if (self.dead) return;
         // React to the world before acting.
         if (threat) |t| {
@@ -84,7 +85,7 @@ pub const Npc = struct {
                 if (self.timer <= 0) self.pickWander(rand);
             },
             .walk => {
-                _ = moveBox(map, &self.pos, NPC_SIZE, self.dir.scale(WALK_SPEED * dt));
+                _ = moveBox(tiles, &self.pos, NPC_SIZE, self.dir.scale(WALK_SPEED * dt));
                 self.timer -= dt;
                 if (self.timer <= 0) {
                     self.state = .idle;
@@ -95,7 +96,7 @@ pub const Npc = struct {
             },
             .panic => {
                 const away = self.center().sub(self.flee_from).normalized();
-                _ = moveBox(map, &self.pos, NPC_SIZE, away.scale(PANIC_SPEED * dt));
+                _ = moveBox(tiles, &self.pos, NPC_SIZE, away.scale(PANIC_SPEED * dt));
                 self.dir = away;
                 self.timer -= dt;
                 if (self.timer <= 0) {
@@ -163,29 +164,31 @@ fn testRand(seed: u64) std.Random.DefaultPrng {
 test "npc wanders when idle expires" {
     var map = try TileMap.init(std.testing.allocator, 16, 16);
     defer map.deinit();
+    const tiles = Tiles{ .single = &map };
     var prng = testRand(1);
     var r = prng.random();
     var n = Npc{ .pos = .{ .x = 100, .y = 100 }, .timer = 0 };
-    n.update(map, &r, 0.016, null);
+    n.update(tiles, &r, 0.016, null);
     try std.testing.expect(n.state == .walk);
     const before = n.pos;
-    n.update(map, &r, 1.0, null);
+    n.update(tiles, &r, 1.0, null);
     try std.testing.expect(!n.pos.eql(before));
 }
 
 test "gunshot nearby causes panic, far one ignored" {
     var map = try TileMap.init(std.testing.allocator, 32, 32);
     defer map.deinit();
+    const tiles = Tiles{ .single = &map };
     var prng = testRand(2);
     var r = prng.random();
     var n = Npc{ .pos = .{ .x = 500, .y = 500 } };
-    n.update(map, &r, 0.016, .{ .pos = .{ .x = 5000, .y = 5000 }, .kind = .gunshot });
+    n.update(tiles, &r, 0.016, .{ .pos = .{ .x = 5000, .y = 5000 }, .kind = .gunshot });
     try std.testing.expect(n.state == .idle);
     const threatened = Threat{ .pos = .{ .x = 520, .y = 500 }, .kind = .gunshot };
-    n.update(map, &r, 0.016, threatened);
+    n.update(tiles, &r, 0.016, threatened);
     try std.testing.expect(n.state == .panic);
     const before = n.pos.x;
-    n.update(map, &r, 1.0, null);
+    n.update(tiles, &r, 1.0, null);
     try std.testing.expect(n.pos.x < before); // fled away from threat at +x
 }
 

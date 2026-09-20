@@ -4,6 +4,7 @@
 
 const Faction = @import("../factions/factions.zig").Faction;
 const TileMap = @import("../world/map.zig").TileMap;
+const Tiles = @import("../world/tiles.zig").Tiles;
 const moveBox = @import("../physics/collision.zig").moveBox;
 const Vec2 = @import("../math/vec2.zig").Vec2;
 
@@ -30,7 +31,7 @@ pub const Officer = struct {
     /// Returns true when an arrest completes on this step.
     pub fn update(
         self: *Officer,
-        map: TileMap,
+        tiles: Tiles,
         rand: *std.Random,
         dt: f32,
         target: Vec2,
@@ -47,7 +48,7 @@ pub const Officer = struct {
 
         switch (self.state) {
             .patrol => {
-                _ = moveBox(map, &self.pos, OFFICER_SIZE, self.dir.scale(PATROL_SPEED * dt));
+                _ = moveBox(tiles, &self.pos, OFFICER_SIZE, self.dir.scale(PATROL_SPEED * dt));
                 self.wander_timer -= dt;
                 if (self.wander_timer <= 0) {
                     const a = rand.float(f32) * std.math.pi * 2;
@@ -60,7 +61,7 @@ pub const Officer = struct {
                 const dist = to.length();
                 if (dist > 1e-3) {
                     self.dir = to.scale(1 / dist);
-                    _ = moveBox(map, &self.pos, OFFICER_SIZE, self.dir.scale(CHASE_SPEED * dt));
+                    _ = moveBox(tiles, &self.pos, OFFICER_SIZE, self.dir.scale(CHASE_SPEED * dt));
                 }
                 if (dist <= ARREST_RADIUS) {
                     self.arrest_progress += dt;
@@ -86,27 +87,29 @@ fn testRand(seed: u64) std.Random.DefaultPrng {
 test "officer patrols, chases when wanted, stands down after" {
     var map = try TileMap.init(std.testing.allocator, 32, 32);
     defer map.deinit();
+    const tiles = Tiles{ .single = &map };
     var prng = testRand(7);
     var r = prng.random();
     var o = Officer{ .pos = .{ .x = 500, .y = 500 } };
-    try std.testing.expect(o.update(map, &r, 1.0, .{ .x = 0, .y = 0 }, 0) == false);
+    try std.testing.expect(o.update(tiles, &r, 1.0, .{ .x = 0, .y = 0 }, 0) == false);
     try std.testing.expect(o.state == .patrol);
-    _ = o.update(map, &r, 0.016, .{ .x = 0, .y = 0 }, 2);
+    _ = o.update(tiles, &r, 0.016, .{ .x = 0, .y = 0 }, 2);
     try std.testing.expect(o.state == .chase);
-    _ = o.update(map, &r, 0.016, .{ .x = 0, .y = 0 }, 0);
+    _ = o.update(tiles, &r, 0.016, .{ .x = 0, .y = 0 }, 0);
     try std.testing.expect(o.state == .patrol);
 }
 
 test "chase closes distance" {
     var map = try TileMap.init(std.testing.allocator, 64, 64);
     defer map.deinit();
+    const tiles = Tiles{ .single = &map };
     var prng = testRand(8);
     var r = prng.random();
     var o = Officer{ .pos = .{ .x = 100, .y = 100 } };
     const target = Vec2{ .x = 900, .y = 900 };
     const d0 = o.center().sub(target).length();
     var i: u32 = 0;
-    while (i < 60) : (i += 1) _ = o.update(map, &r, 1.0 / 60.0, target, 1);
+    while (i < 60) : (i += 1) _ = o.update(tiles, &r, 1.0 / 60.0, target, 1);
     const d1 = o.center().sub(target).length();
     try std.testing.expect(d1 < d0 - 100);
 }
@@ -114,6 +117,7 @@ test "chase closes distance" {
 test "sustained contact completes arrest, distance resets it" {
     var map = try TileMap.init(std.testing.allocator, 32, 32);
     defer map.deinit();
+    const tiles = Tiles{ .single = &map };
     var prng = testRand(9);
     var r = prng.random();
     // Officer center sits exactly on the target: contact every step.
@@ -122,7 +126,7 @@ test "sustained contact completes arrest, distance resets it" {
     var done = false;
     var i: u32 = 0;
     while (i < 200) : (i += 1) {
-        if (o.update(map, &r, 1.0 / 60.0, target, 1)) {
+        if (o.update(tiles, &r, 1.0 / 60.0, target, 1)) {
             done = true;
             break;
         }
@@ -132,8 +136,8 @@ test "sustained contact completes arrest, distance resets it" {
     // Breaking contact drains progress: 1s of contact then far away.
     var o2 = Officer{ .pos = .{ .x = 500 - OFFICER_SIZE.x * 0.5, .y = 500 - OFFICER_SIZE.y * 0.5 } };
     i = 0;
-    while (i < 60) : (i += 1) _ = o2.update(map, &r, 1.0 / 60.0, target, 1);
+    while (i < 60) : (i += 1) _ = o2.update(tiles, &r, 1.0 / 60.0, target, 1);
     try std.testing.expect(o2.arrest_progress > 0.5);
-    _ = o2.update(map, &r, 5.0, .{ .x = 0, .y = 0 }, 1);
+    _ = o2.update(tiles, &r, 5.0, .{ .x = 0, .y = 0 }, 1);
     try std.testing.expectApproxEqAbs(@as(f32, 0), o2.arrest_progress, 1e-4);
 }

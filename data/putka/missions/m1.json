@@ -4,8 +4,8 @@
   "briefing": "Vie viesti perille. Perilla valinta.",
   "required": [],
   "objectives": [
-    { "type": "go_to", "desc": "Mene tapaamiseen", "x": 400.0, "y": 208.0, "radius": 48.0 },
-    { "type": "go_to", "desc": "Vie viesti etelaan", "x": 432.0, "y": 592.0, "radius": 48.0 }
+    { "type": "go_to", "desc": "Mene tapaamiseen", "x": 528.0, "y": 208.0, "radius": 48.0 },
+    { "type": "go_to", "desc": "Vie viesti etelaan", "x": 1040.0, "y": 1296.0, "radius": 48.0 }
   ],
   "choices": [
     { "text": "Ota rahat", "set": ["kept_cash"] },

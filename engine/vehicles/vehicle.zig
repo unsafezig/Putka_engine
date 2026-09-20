@@ -5,6 +5,7 @@
 
 const Intent = @import("../input/input.zig").Intent;
 const TileMap = @import("../world/map.zig").TileMap;
+const Tiles = @import("../world/tiles.zig").Tiles;
 const isBoxBlocked = @import("../physics/collision.zig").isBoxBlocked;
 const Aabb = @import("../math/aabb.zig").Aabb;
 const Vec2 = @import("../math/vec2.zig").Vec2;
@@ -43,7 +44,7 @@ pub const Vehicle = struct {
     }
 
     /// Intent.move doubles as drive input: up = throttle, x = steer.
-    pub fn update(self: *Vehicle, map: TileMap, p: Params, intent: Intent, dt: f32) void {
+    pub fn update(self: *Vehicle, tiles: Tiles, p: Params, intent: Intent, dt: f32) void {
         const throttle: f32 = -intent.move.y; // up key => +1
         const steer: f32 = intent.move.x;
 
@@ -65,8 +66,8 @@ pub const Vehicle = struct {
 
         // Drag, harsher off-road.
         var drag = p.drag;
-        const tc = map.worldToTile(self.pos);
-        if (map.get(tc.x, tc.y)) |t| {
+        const tc = Tiles.worldToTile(self.pos);
+        if (tiles.get(tc.x, tc.y)) |t| {
             if (t.type != .road and t.type != .bridge) drag += p.offroad_drag;
         }
         self.speed -= self.speed * @min(drag * dt, 0.9);
@@ -76,13 +77,13 @@ pub const Vehicle = struct {
         const half = Vec2{ .x = p.width * 0.4, .y = p.width * 0.4 };
         const d = self.forward().scale(self.speed * dt);
         const box_x = Aabb.fromCenterHalf(.{ .x = self.pos.x + d.x, .y = self.pos.y }, half);
-        if (!isBoxBlocked(map, box_x)) {
+        if (!isBoxBlocked(tiles, box_x)) {
             self.pos.x += d.x;
         } else {
             self.speed = 0;
         }
         const box_y = Aabb.fromCenterHalf(.{ .x = self.pos.x, .y = self.pos.y + d.y }, half);
-        if (!isBoxBlocked(map, box_y)) {
+        if (!isBoxBlocked(tiles, box_y)) {
             self.pos.y += d.y;
         } else {
             self.speed = 0;
@@ -116,6 +117,7 @@ fn testCar() Vehicle {
 test "vehicle accelerates toward max speed" {
     var map = try TileMap.init(std.testing.allocator, 64, 8);
     defer map.deinit();
+    const tiles = Tiles{ .single = &map };
     // Long paved straight so the car can wind out without hitting a wall.
     var x: i32 = 0;
     while (x < 64) : (x += 1) map.set(x, 4, .{ .type = .road });
@@ -125,7 +127,7 @@ test "vehicle accelerates toward max speed" {
     var top: f32 = 0;
     var i: u32 = 0;
     while (i < 600) : (i += 1) {
-        v.update(map, p, gas, 1.0 / 60.0);
+        v.update(tiles, p, gas, 1.0 / 60.0);
         top = @max(top, v.speed);
     }
     try std.testing.expect(top > p.max_speed * 0.95);
@@ -135,51 +137,55 @@ test "vehicle accelerates toward max speed" {
 test "vehicle brakes and reverses" {
     var map = try openMap();
     defer map.deinit();
+    const tiles = Tiles{ .single = &map };
     const p = Params{};
     var v = testCar();
     v.speed = 200;
     const brake = Intent{ .move = .{ .x = 0, .y = 1 } };
     var i: u32 = 0;
-    while (i < 120) : (i += 1) v.update(map, p, brake, 1.0 / 60.0);
+    while (i < 120) : (i += 1) v.update(tiles, p, brake, 1.0 / 60.0);
     try std.testing.expect(v.speed < 0); // came to stop, now reversing
 }
 
 test "no steering when stationary, steering at speed" {
     var map = try openMap();
     defer map.deinit();
+    const tiles = Tiles{ .single = &map };
     const p = Params{};
     var v = testCar();
     const steer = Intent{ .move = .{ .x = 1, .y = 0 } };
-    v.update(map, p, steer, 1.0);
+    v.update(tiles, p, steer, 1.0);
     try std.testing.expectApproxEqAbs(@as(f32, 0), v.heading, 1e-5);
     v.speed = p.max_speed;
-    v.update(map, p, steer, 0.5);
+    v.update(tiles, p, steer, 0.5);
     try std.testing.expect(v.heading > 1.0);
 }
 
 test "wall stops the car" {
     var map = try openMap();
     defer map.deinit();
+    const tiles = Tiles{ .single = &map };
     map.set(10, 5, .{ .type = .wall, .solid = true }); // world x 320..
     const p = Params{};
     var v = Vehicle{ .pos = .{ .x = 200, .y = 5 * 32 + 16 }, .speed = 300 };
     const gas = Intent{ .move = .{ .x = 0, .y = -1 } };
     var i: u32 = 0;
-    while (i < 120) : (i += 1) v.update(map, p, gas, 1.0 / 60.0);
+    while (i < 120) : (i += 1) v.update(tiles, p, gas, 1.0 / 60.0);
     try std.testing.expect(v.pos.x + p.width * 0.4 <= 320.0 + 1e-3);
 }
 
 test "offroad is slower than road" {
     var map = try openMap();
     defer map.deinit();
+    const tiles = Tiles{ .single = &map };
     const p = Params{};
     // Road tile under car A.
     map.set(2, 2, .{ .type = .road });
     var road = Vehicle{ .pos = .{ .x = 2 * 32 + 16, .y = 2 * 32 + 16 }, .speed = 200 };
     var grass = Vehicle{ .pos = .{ .x = 20 * 32 + 16, .y = 20 * 32 + 16 }, .speed = 200 };
     const coast = Intent{};
-    road.update(map, p, coast, 1.0);
-    grass.update(map, p, coast, 1.0);
+    road.update(tiles, p, coast, 1.0);
+    grass.update(tiles, p, coast, 1.0);
     try std.testing.expect(grass.speed < road.speed);
 }
 

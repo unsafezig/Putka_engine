@@ -3,6 +3,7 @@
 //! hit-sweeps against NPC body circles.
 
 const TileMap = @import("../world/map.zig").TileMap;
+const Tiles = @import("../world/tiles.zig").Tiles;
 const Vec2 = @import("../math/vec2.zig").Vec2;
 
 pub const WeaponDef = struct {
@@ -70,15 +71,15 @@ pub const Gun = struct {
     }
 };
 
-fn pointSolid(map: TileMap, p: Vec2) bool {
-    const t = map.worldToTile(p);
-    const tile = map.get(t.x, t.y) orelse return true;
+fn pointSolid(tiles: Tiles, p: Vec2) bool {
+    const t = Tiles.worldToTile(p);
+    const tile = tiles.get(t.x, t.y) orelse return true;
     return tile.solid or !tile.isWalkable();
 }
 
 /// Advance shots; walls and spent range remove them (swap-remove).
 /// Moves in <=8px substeps so fast bullets cannot tunnel through walls.
-pub fn updateShots(shots: *Shots, map: TileMap, dt: f32) void {
+pub fn updateShots(shots: *Shots, tiles: Tiles, dt: f32) void {
     var i = shots.items.items.len;
     while (i > 0) {
         i -= 1;
@@ -91,7 +92,7 @@ pub fn updateShots(shots: *Shots, map: TileMap, dt: f32) void {
         while (n < steps and !dead) : (n += 1) {
             s.pos = s.pos.add(s.vel.scale(h));
             s.left -= s.vel.length() * h;
-            if (s.left <= 0 or pointSolid(map, s.pos)) dead = true;
+            if (s.left <= 0 or pointSolid(tiles, s.pos)) dead = true;
         }
         if (dead) _ = shots.items.swapRemove(i);
     }
@@ -115,14 +116,15 @@ test "fire interval gates shots" {
 test "shots fly straight and die on walls/range" {
     var map = try TileMap.init(std.testing.allocator, 16, 16);
     defer map.deinit();
+    const tiles = Tiles{ .single = &map };
     map.set(8, 2, .{ .type = .wall, .solid = true });
     var shots = Shots.init(std.testing.allocator);
     defer shots.deinit();
     var gun = Gun{ .def = .{ .projectile_speed = 320, .range = 10000 } };
     _ = try gun.tryFire(&shots, .{ .x = 0, .y = 2 * 32 + 16 }, .{ .x = 1, .y = 0 });
-    updateShots(&shots, map, 0.5); // 160px, still flying
+    updateShots(&shots, tiles, 0.5); // 160px, still flying
     try std.testing.expectEqual(@as(usize, 1), shots.items.items.len);
-    updateShots(&shots, map, 1.0); // into the wall
+    updateShots(&shots, tiles, 1.0); // into the wall
     try std.testing.expectEqual(@as(usize, 0), shots.items.items.len);
 }
 

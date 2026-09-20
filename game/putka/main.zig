@@ -66,27 +66,18 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const cwd = std.Io.Dir.cwd();
 
-    // Canonical map comes from data; procedural layout is the fallback
-    // so the demo still runs if the JSON is broken.
-    var map = engine.world.loader.loadMapJson(gpa, putka_data.mini_city_map) catch blk: {
-        std.log.warn("mini_city.json failed to load, using procedural fallback", .{});
-        var fallback = try engine.TileMap.init(gpa, 24, 24);
-        fallback.buildMiniCity();
-        break :blk fallback;
-    };
-    defer map.deinit();
+    // Canonical city comes from data; a 1-sector fallback keeps the
+    // demo running if the JSON is broken.
+    var world = engine.world.districts.loadWorldJson(gpa, putka_data.districts_map) catch
+        try engine.world.districts.loadWorldJson(gpa, "{\"sector_size\":16,\"grid\":[\"R\"]}");
+    defer world.deinit();
+    const tiles = engine.world.tiles.Tiles{ .world = &world };
 
-    var player = engine.Player{ .pos = .{
-        .x = 13 * engine.world.map.TILE_SIZE,
-        .y = 11 * engine.world.map.TILE_SIZE,
-    } };
+    var player = engine.Player{ .pos = .{ .x = 560, .y = 688 } };
     var sim = engine.FixedStep.init(1.0 / 60.0);
 
     const car_params = try engine.vehicles.vehicle.loadParamsJson(gpa, putka_data.car_params);
-    var car = engine.Vehicle{ .pos = .{
-        .x = 12 * engine.world.map.TILE_SIZE + engine.world.map.TILE_SIZE * 0.5,
-        .y = 10 * engine.world.map.TILE_SIZE + engine.world.map.TILE_SIZE * 0.5,
-    }, .heading = std.math.pi * 0.5 };
+    var car = engine.Vehicle{ .pos = .{ .x = 528, .y = 656 }, .heading = std.math.pi * 0.5 };
     var driving = false;
     var was_action = false;
     var ecam = engine.Camera2D{};
@@ -106,10 +97,10 @@ pub fn main(init: std.process.Init) !void {
     var npcs = std.ArrayList(engine.Npc).empty;
     defer npcs.deinit(gpa);
     const spawns = [_]struct { x: f32, y: f32, f: engine.factions.Faction }{
-        .{ .x = 10 * 32, .y = 10 * 32, .f = .civilians },
-        .{ .x = 15 * 32, .y = 9 * 32, .f = .civilians },
-        .{ .x = 9 * 32, .y = 15 * 32, .f = .civilians },
-        .{ .x = 15 * 32, .y = 15 * 32, .f = .gang_a },
+        .{ .x = 704, .y = 704, .f = .civilians },
+        .{ .x = 832, .y = 704, .f = .civilians },
+        .{ .x = 704, .y = 832, .f = .civilians },
+        .{ .x = 832, .y = 832, .f = .gang_a },
     };
     for (spawns) |sp| {
         try npcs.append(gpa, .{
@@ -125,8 +116,8 @@ pub fn main(init: std.process.Init) !void {
     var officers = std.ArrayList(engine.pursuit.Officer).empty;
     defer officers.deinit(gpa);
     const posts = [_]engine.Vec2{
-        .{ .x = 12 * 32 + 7, .y = 6 * 32 + 7 },
-        .{ .x = 13 * 32 + 7, .y = 18 * 32 + 7 },
+        .{ .x = 528 - 9, .y = 272 - 9 },
+        .{ .x = 1040 - 9, .y = 1296 - 9 },
     };
     for (posts) |post| {
         try officers.append(gpa, .{ .pos = post });
@@ -190,11 +181,8 @@ pub fn main(init: std.process.Init) !void {
             busted_timer -= frame_dt;
             if (busted_timer <= 0) {
                 // Morning after: back on the street, record clean.
-                player.pos = .{ .x = 13 * 32, .y = 11 * 32 };
-                car.pos = .{
-                    .x = 12 * 32 + 16,
-                    .y = 10 * 32 + 16,
-                };
+                player.pos = .{ .x = 560, .y = 688 };
+                car.pos = .{ .x = 528, .y = 656 };
                 car.heading = std.math.pi * 0.5;
                 car.speed = 0;
                 car.driver = false;
@@ -223,7 +211,7 @@ pub fn main(init: std.process.Init) !void {
             const action_pressed = intent.action and !was_action;
             was_action = intent.action;
             if (driving) {
-                car.update(map, car_params, intent, sim.dt);
+                car.update(tiles, car_params, intent, sim.dt);
                 // Keep the walker's body glued to the seat.
                 player.pos = .{
                     .x = car.pos.x - engine.characters.player.PLAYER_SIZE.x * 0.5,
@@ -241,7 +229,7 @@ pub fn main(init: std.process.Init) !void {
                     ecam.mode = .player;
                 }
             } else {
-                player.update(map, intent, sim.dt);
+                player.update(tiles, intent, sim.dt);
                 if (action_pressed and engine.vehicles.vehicle.canEnter(player.center(), car)) {
                     driving = true;
                     car.driver = true;
@@ -264,7 +252,7 @@ pub fn main(init: std.process.Init) !void {
                     threat = .{ .pos = muzzle, .kind = .gunshot };
                 }
             }
-            engine.weapons.weapon.updateShots(&shots, map, sim.dt);
+            engine.weapons.weapon.updateShots(&shots, tiles, sim.dt);
             killed.clearRetainingCapacity();
             const sweep = engine.characters.npc.sweepShots(&shots, npcs.items);
             if (sweep.kills > 0) {
@@ -278,7 +266,9 @@ pub fn main(init: std.process.Init) !void {
             }
             for (npcs.items) |*n| {
                 if (n.dead) continue;
-                n.update(map, &rng, sim.dt, threat orelse car_threat);
+                // Streaming: frozen peds outside active sectors.
+                if (!tiles.activeAt(n.center())) continue;
+                n.update(tiles, &rng, sim.dt, threat orelse car_threat);
                 if (driving and engine.characters.npc.checkRunOver(n, car.pos, car_params.width * 0.5, car.speed)) {
                     wanted.addHeat(crimes.runover);
                     killed.append(gpa, n.faction) catch {};
@@ -289,7 +279,15 @@ pub fn main(init: std.process.Init) !void {
             // Patrol responds to the wanted level; sustained contact busts.
             const target = if (driving) car.pos else player.center();
             for (officers.items) |*o| {
-                if (o.update(map, &rng, sim.dt, target, wanted.level())) {
+                if (!tiles.activeAt(o.center())) {
+                    // Out of streaming range: the tail is lost.
+                    if (o.state == .chase) {
+                        o.state = .patrol;
+                        o.arrest_progress = 0;
+                    }
+                    continue;
+                }
+                if (o.update(tiles, &rng, sim.dt, target, wanted.level())) {
                     busted_timer = 3.0;
                     wanted.heat = 0;
                     if (board.active() != null) {
@@ -468,6 +466,7 @@ pub fn main(init: std.process.Init) !void {
         }
 
         const focus = if (driving) car.pos else player.center();
+        _ = world.activeAround(focus, 1);
         ecam.follow(focus);
         ecam.zoom = if (driving) 1.0 else 1.5;
         const cam = rl.Camera2D{
@@ -480,21 +479,41 @@ pub fn main(init: std.process.Init) !void {
         rl.beginDrawing();
         rl.clearBackground(rl.Color.black);
         cam.begin();
-        // Tiles.
-        var ty: i32 = 0;
-        while (ty < map.height) : (ty += 1) {
-            var tx: i32 = 0;
-            while (tx < map.width) : (tx += 1) {
-                const t = map.get(tx, ty) orelse continue;
-                rl.drawRectangle(
-                    tx * TILE_PX,
-                    ty * TILE_PX,
-                    TILE_PX,
-                    TILE_PX,
-                    tileColor(t.type),
-                );
-                // Grid line for readability.
-                rl.drawRectangleLines(tx * TILE_PX, ty * TILE_PX, TILE_PX, TILE_PX, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 40 });
+        // Tiles, culled to the camera view; inactive sectors drawn dim.
+        const view_size: engine.Vec2 = .{ .x = screen_w, .y = screen_h };
+        const ctl = ecam.screenToWorld(view_size, .{});
+        const cbr = ecam.screenToWorld(view_size, view_size);
+        const tx0: i32 = @max(0, @as(i32, @intFromFloat(@floor(ctl.x / 32))) - 1);
+        const ty0: i32 = @max(0, @as(i32, @intFromFloat(@floor(ctl.y / 32))) - 1);
+        const tx1: i32 = @as(i32, @intFromFloat(@floor(cbr.x / 32))) + 1;
+        const ty1: i32 = @as(i32, @intFromFloat(@floor(cbr.y / 32))) + 1;
+        var ty: i32 = ty0;
+        while (ty <= ty1) : (ty += 1) {
+            var tx: i32 = tx0;
+            while (tx <= tx1) : (tx += 1) {
+                const t = tiles.get(tx, ty) orelse continue;
+                var col = tileColor(t.type);
+                const center = engine.Vec2{
+                    .x = @as(f32, @floatFromInt(tx)) * 32 + 16,
+                    .y = @as(f32, @floatFromInt(ty)) * 32 + 16,
+                };
+                if (!world.sectorActiveAt(center)) {
+                    col = .{ .r = col.r / 2, .g = col.g / 2, .b = col.b / 2, .a = col.a };
+                }
+                rl.drawRectangle(tx * TILE_PX, ty * TILE_PX, TILE_PX, TILE_PX, col);
+            }
+        }
+        // Sector borders (streaming debug view).
+        {
+            const edge: i32 = @as(i32, @intCast(world.sector_size)) * TILE_PX;
+            const wide: i32 = @as(i32, @intCast(world.wide));
+            const high: i32 = @as(i32, @intCast(world.high));
+            var sy: i32 = 0;
+            while (sy < high) : (sy += 1) {
+                var sx: i32 = 0;
+                while (sx < wide) : (sx += 1) {
+                    rl.drawRectangleLines(sx * edge, sy * edge, edge, edge, .{ .r = 200, .g = 180, .b = 80, .a = 90 });
+                }
             }
         }
         // Parked/driven car (rotated body + windshield hint).
@@ -562,6 +581,21 @@ pub fn main(init: std.process.Init) !void {
                 col,
             );
         }
+        // Active go_to target marker.
+        if (board.active()) |act| {
+            if (act.state == .active and act.obj_idx < act.def.objectives.len) {
+                const o = act.def.objectives[act.obj_idx];
+                if (o.type == .go_to) {
+                    const pulse: f32 = 7 + @as(f32, @floatCast(@sin(rl.getTime() * 5))) * 3;
+                    rl.drawCircle(
+                        @as(i32, @intFromFloat(o.x)),
+                        @as(i32, @intFromFloat(o.y)),
+                        pulse,
+                        rl.Color.gold,
+                    );
+                }
+            }
+        }
         rl.endMode2D();
         rl.drawText("WASD/arrows: move/drive  E: car  SPACE/J/click: fire  T: talk  M: mission  F5/F9: save/load", 10, 10, 20, rl.Color.ray_white);
         var hud_buf: [64]u8 = undefined;
@@ -576,18 +610,22 @@ pub fn main(init: std.process.Init) !void {
             const col = if (wanted.level() == 0) rl.Color.ray_white else rl.Color.red;
             rl.drawText(hud, 10, 36, 20, col);
         } else |_| {}
+        var sect_buf: [32]u8 = undefined;
+        if (std.fmt.bufPrintZ(&sect_buf, "SECT {d}/{d}", .{ world.activeCount(), world.sectorCount() })) |line| {
+            rl.drawText(line, 10, 62, 20, rl.Color.sky_blue);
+        } else |_| {}
         // Mission tracker: offer, active objective, or branch choice.
         if (board.active()) |act| {
             var name_buf: [96]u8 = undefined;
             if (std.fmt.bufPrintZ(&name_buf, "{s}", .{act.def.name})) |name| {
-                rl.drawText(name, 10, 62, 20, rl.Color.gold);
+                rl.drawText(name, 10, 88, 20, rl.Color.gold);
             } else |_| {}
             if (act.state == .awaiting_choice and convo == null) {
-                rl.drawText("Valitse:", 10, 88, 20, rl.Color.ray_white);
+                rl.drawText("Valitse:", 10, 114, 20, rl.Color.ray_white);
                 for (act.def.choices, 0..) |ch, i| {
                     var ch_buf: [96]u8 = undefined;
                     if (std.fmt.bufPrintZ(&ch_buf, "{d}: {s}", .{ i + 1, ch.text })) |line| {
-                        rl.drawText(line, 10, 114 + @as(i32, @intCast(i)) * 26, 20, rl.Color.ray_white);
+                        rl.drawText(line, 10, 140 + @as(i32, @intCast(i)) * 26, 20, rl.Color.ray_white);
                     } else |_| {}
                 }
             } else if (act.obj_idx < act.def.objectives.len) {
@@ -599,20 +637,20 @@ pub fn main(init: std.process.Init) !void {
                     else => std.fmt.bufPrintZ(&obj_buf, "{s}", .{o.desc}),
                 };
                 if (line) |l| {
-                    rl.drawText(l, 10, 88, 20, rl.Color.ray_white);
+                    rl.drawText(l, 10, 114, 20, rl.Color.ray_white);
                 } else |_| {}
             }
         } else if (board.offered()) |offer| {
             var off_buf: [128]u8 = undefined;
             if (std.fmt.bufPrintZ(&off_buf, "M: {s} - {s}", .{ offer.def.name, offer.def.briefing })) |line| {
-                rl.drawText(line, 10, 62, 20, rl.Color.lime);
+                rl.drawText(line, 10, 88, 20, rl.Color.lime);
             } else |_| {}
         }
         if (banner_timer > 0) {
             if (banner) |msg| {
                 var msg_buf: [32]u8 = undefined;
                 if (std.fmt.bufPrintZ(&msg_buf, "{s}", .{msg})) |m| {
-                    rl.drawText(m, 10, 140, 20, rl.Color.gold);
+                    rl.drawText(m, 10, 166, 20, rl.Color.gold);
                 } else |_| {}
             }
         }
@@ -653,7 +691,7 @@ test "demo wiring smoke test" {
     var map = try engine.TileMap.init(std.testing.allocator, 8, 8);
     defer map.deinit();
     var p = engine.Player{};
-    p.update(map, engine.Intent.fromKeys(false, true, false, false), 1.0 / 60.0);
+    p.update(.{ .single = &map }, engine.Intent.fromKeys(false, true, false, false), 1.0 / 60.0);
     try std.testing.expect(p.pos.y > 0);
 }
 
@@ -665,6 +703,22 @@ test "mini_city.json loads with cross roads and solid buildings" {    var map = 
     try std.testing.expect(map.get(3, 12).?.type == .road);
     try std.testing.expect(map.get(2, 2).?.solid);
     try std.testing.expect(!map.get(0, 0).?.solid);
+}
+
+test "districts.json loads a connected 3x3 city" {
+    var world = try engine.world.districts.loadWorldJson(std.testing.allocator, putka_data.districts_map);
+    defer world.deinit();
+    try std.testing.expectEqual(@as(usize, 9), world.sectorCount());
+    const tiles = engine.world.tiles.Tiles{ .world = &world };
+    // Border roads connect across the seam between sectors.
+    try std.testing.expect(tiles.get(16, 5).?.type == .road);
+    try std.testing.expect(tiles.get(5, 16).?.type == .road);
+    // Demo spawn tiles are walkable road.
+    try std.testing.expect(tiles.get(16, 20).?.type == .road);
+    try std.testing.expect(!tiles.get(16, 20).?.solid);
+    // Streaming starts fully active, narrows to the focus sector.
+    try std.testing.expectEqual(@as(usize, 9), world.activeAround(.{ .x = 784, .y = 784 }, 1));
+    try std.testing.expectEqual(@as(usize, 1), world.activeAround(.{ .x = 100, .y = 100 }, 0));
 }
 
 test "demo missions load, gate and branch" {
@@ -684,10 +738,10 @@ test "demo missions load, gate and branch" {
     // Only m1 offered at first; its first go_to point works.
     try std.testing.expectEqualStrings("m1", board.offered().?.def.id);
     try board.start("m1");
-    const ev = board.update(0.016, .{ .x = 400, .y = 208 }, 0, &.{});
+    const ev = board.update(0.016, .{ .x = 528, .y = 208 }, 0, &.{});
     try std.testing.expectEqual(@as(u32, 1), ev.objectives_done);
     // Branch: choice 2 opens m2b, not m2a.
-    _ = board.update(0.016, .{ .x = 432, .y = 592 }, 0, &.{});
+    _ = board.update(0.016, .{ .x = 1040, .y = 1296 }, 0, &.{});
     try board.choose("m1", 1);
     try std.testing.expect(flags.get("returned_cash"));
     try std.testing.expect(!flags.get("kept_cash"));

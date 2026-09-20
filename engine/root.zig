@@ -17,6 +17,9 @@ pub const world = struct {
     pub const tile = @import("world/tile.zig");
     pub const map = @import("world/map.zig");
     pub const loader = @import("world/loader.zig");
+    pub const sector = @import("world/sector.zig");
+    pub const districts = @import("world/world.zig");
+    pub const tiles = @import("world/tiles.zig");
 };
 pub const physics = struct {
     pub const collision = @import("physics/collision.zig");
@@ -70,6 +73,9 @@ test {
     _ = @import("world/tile.zig");
     _ = @import("world/map.zig");
     _ = @import("world/loader.zig");
+    _ = @import("world/sector.zig");
+    _ = @import("world/world.zig");
+    _ = @import("world/tiles.zig");
     _ = @import("physics/collision.zig");
     _ = @import("entities/id.zig");
     _ = @import("entities/registry.zig");

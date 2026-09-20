@@ -4,6 +4,7 @@
 //! Engine code never imports this; only game entry points and their tests.
 
 pub const mini_city_map = @embedFile("putka/maps/mini_city.json");
+pub const districts_map = @embedFile("putka/maps/districts.json");
 pub const car_params = @embedFile("putka/vehicles/car.json");
 pub const pistol_def = @embedFile("putka/weapons/pistol.json");
 pub const crime_table = @embedFile("putka/crimes.json");
