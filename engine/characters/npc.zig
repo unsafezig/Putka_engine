@@ -36,6 +36,8 @@ pub const Npc = struct {
     timer: f32 = 1,
     flee_from: Vec2 = .{},
     dead: bool = false,
+    /// Gait phase in radians; speed-scaled (panic cycles faster).
+    phase: f32 = 0,
 
     pub fn center(self: Npc) Vec2 {
         return .{ .x = self.pos.x + NPC_SIZE.x * 0.5, .y = self.pos.y + NPC_SIZE.y * 0.5 };
@@ -86,6 +88,7 @@ pub const Npc = struct {
             },
             .walk => {
                 _ = moveBox(tiles, &self.pos, NPC_SIZE, self.dir.scale(WALK_SPEED * dt));
+                self.phase += dt * WALK_SPEED * 0.12;
                 self.timer -= dt;
                 if (self.timer <= 0) {
                     self.state = .idle;
@@ -98,6 +101,7 @@ pub const Npc = struct {
                 const away = self.center().sub(self.flee_from).normalized();
                 _ = moveBox(tiles, &self.pos, NPC_SIZE, away.scale(PANIC_SPEED * dt));
                 self.dir = away;
+                self.phase += dt * PANIC_SPEED * 0.12;
                 self.timer -= dt;
                 if (self.timer <= 0) {
                     self.state = .idle;
@@ -173,6 +177,7 @@ test "npc wanders when idle expires" {
     const before = n.pos;
     n.update(tiles, &r, 1.0, null);
     try std.testing.expect(!n.pos.eql(before));
+    try std.testing.expect(n.phase > 0);
 }
 
 test "gunshot nearby causes panic, far one ignored" {

@@ -24,6 +24,10 @@ fn bytesFor(id: Sprites.SpriteId) []const u8 {
         .wall_block => putka_assets.wall_block,
         .sedan => putka_assets.sedan,
         .sedan_brake => putka_assets.sedan_brake,
+        .ped_civ => putka_assets.ped_civ,
+        .ped_gang => putka_assets.ped_gang,
+        .ped_cop => putka_assets.ped_cop,
+        .ped_player => putka_assets.ped_player,
         .glow => putka_assets.glow,
         .vignette => putka_assets.vignette,
     };

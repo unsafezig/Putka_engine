@@ -59,6 +59,29 @@ fn pollIntent() engine.Intent {
     return intent;
 }
 
+/// Top-down walker sprite: rotated to facing, bobbing with gait phase.
+fn drawPed(
+    tex: rl.Texture2D,
+    cx: f32,
+    cy: f32,
+    dir: engine.Vec2,
+    phase: f32,
+    size: f32,
+    tint: rl.Color,
+) void {
+    const ang = std.math.atan2(dir.y, dir.x) * 180.0 / std.math.pi;
+    const bob = @sin(phase) * 1.5;
+    const half = size * 0.5;
+    rl.drawTexturePro(
+        tex,
+        .{ .x = 0, .y = 0, .width = 12, .height = 12 },
+        .{ .x = cx - half, .y = cy - half + bob, .width = size, .height = size },
+        .{ .x = half, .y = half },
+        ang,
+        tint,
+    );
+}
+
 /// Greedy word wrap for the dialogue panel (ASCII demo text).
 /// Returns lines drawn.
 fn drawWrapped(text: []const u8, x: i32, y: i32, max_chars: usize, size: i32, color: rl.Color) i32 {
@@ -215,6 +238,7 @@ pub fn main(init: std.process.Init) !void {
 
     // Sprite catalog (JSON) + GPU textures (needs a GL context).
     const tile_cat = try engine.rendering.sprites.loadTilesJson(gpa, putka_data.sprites_tiles);
+    const ped_cat = try engine.rendering.sprites.loadPedsJson(gpa, putka_data.sprites_peds);
     var texm = try textures.TexManager.load(gpa);
     defer texm.unload();
     var brake_light = false;
@@ -675,47 +699,32 @@ pub fn main(init: std.process.Init) !void {
                     1 => {
                         const c = player.center();
                         rl.drawEllipse(@as(i32, @intFromFloat(c.x)), @as(i32, @intFromFloat(c.y + 9)), 9, 3.5, shadow);
-                        rl.drawRectangleRec(
-                            .{
-                                .x = player.pos.x,
-                                .y = player.pos.y,
-                                .width = engine.characters.player.PLAYER_SIZE.x,
-                                .height = engine.characters.player.PLAYER_SIZE.y,
-                            },
-                            rl.Color.red,
+                        drawPed(texm.get(.ped_player),
+                            c.x,
+                            c.y,
+                            player.face,
+                            player.phase,
+                            20 * ped_cat.get(.ped_player).scale / 1.5,
+                            .white,
                         );
                     },
                     2 => {
                         const n = npcs.items[e.idx];
                         const c = n.center();
                         rl.drawEllipse(@as(i32, @intFromFloat(c.x)), @as(i32, @intFromFloat(c.y + 8)), 9, 3.5, shadow);
-                        const col = if (n.state == .panic)
-                            rl.Color.yellow
-                        else if (relations.get(n.faction, .player) == .hostile)
-                            rl.Color.purple
-                        else
-                            rl.Color.lime;
-                        rl.drawCircle(
-                            @as(i32, @intFromFloat(c.x)),
-                            @as(i32, @intFromFloat(c.y)),
-                            engine.characters.npc.BODY_RADIUS,
-                            col,
-                        );
+                        const sid: Sprites.SpriteId = if (relations.get(n.faction, .player) == .hostile) .ped_gang else .ped_civ;
+                        const tint: rl.Color = if (n.state == .panic) .{ .r = 255, .g = 225, .b = 170, .a = 255 } else .white;
+                        drawPed(texm.get(sid), c.x, c.y, n.dir, n.phase, 18, tint);
                     },
                     else => {
                         const o = officers.items[e.idx];
                         const c = o.center();
                         rl.drawEllipse(@as(i32, @intFromFloat(c.x)), @as(i32, @intFromFloat(c.y + 8)), 9, 3.5, shadow);
-                        const col = if (o.state == .chase)
-                            if (siren) rl.Color.red else rl.Color.blue
-                        else
-                            rl.Color.dark_blue;
-                        rl.drawCircle(
-                            @as(i32, @intFromFloat(c.x)),
-                            @as(i32, @intFromFloat(c.y)),
-                            engine.pursuit.OFFICER_SIZE.x * 0.5,
-                            col,
-                        );
+                        drawPed(texm.get(.ped_cop), c.x, c.y, o.dir, o.phase, 18, .white);
+                        if (o.state == .chase) {
+                            const scol: rl.Color = if (siren) .{ .r = 255, .g = 60, .b = 50, .a = 220 } else .{ .r = 80, .g = 140, .b = 255, .a = 220 };
+                            rl.drawTextureEx(texm.get(.glow), .{ .x = c.x - 6, .y = c.y - 20 }, 0, 1.0, scol);
+                        }
                     },
                 }
             }
@@ -919,9 +928,10 @@ test "districts.json loads a connected 3x3 city" {
 test "every sprite id resolves to licensed art" {
     const tiles = try engine.rendering.sprites.loadTilesJson(std.testing.allocator, putka_data.sprites_tiles);
     const vehicles = try engine.rendering.sprites.loadVehiclesJson(std.testing.allocator, putka_data.sprites_vehicles);
+    const peds = try engine.rendering.sprites.loadPedsJson(std.testing.allocator, putka_data.sprites_peds);
     inline for (std.meta.fields(engine.rendering.sprites.SpriteId)) |f| {
         const id: engine.rendering.sprites.SpriteId = @enumFromInt(f.value);
-        const e = engine.rendering.sprites.resolve(tiles, vehicles, id);
+        const e = engine.rendering.sprites.resolve(tiles, vehicles, peds, id);
         try std.testing.expect(e.file.len > 0);
         try std.testing.expect(e.source.len > 0);
         try std.testing.expect(e.scale > 0);

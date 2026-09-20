@@ -17,6 +17,10 @@ pub const SpriteId = enum {
     roof_b,
     wall_south,
     wall_block,
+    ped_civ,
+    ped_gang,
+    ped_cop,
+    ped_player,
     sedan,
     sedan_brake,
     glow,
@@ -65,6 +69,24 @@ pub const TilesJson = struct {
     }
 };
 
+/// Pedestrian entries (`data/putka/sprites/peds.json`).
+pub const PedsJson = struct {
+    ped_civ: Entry = .{},
+    ped_gang: Entry = .{},
+    ped_cop: Entry = .{},
+    ped_player: Entry = .{},
+
+    pub fn get(self: PedsJson, id: SpriteId) Entry {
+        return switch (id) {
+            .ped_civ => self.ped_civ,
+            .ped_gang => self.ped_gang,
+            .ped_cop => self.ped_cop,
+            .ped_player => self.ped_player,
+            else => .{},
+        };
+    }
+};
+
 /// Vehicle + fx entries (`data/putka/sprites/vehicles.json`).
 pub const VehiclesJson = struct {
     sedan: Entry = .{},
@@ -100,11 +122,21 @@ pub fn loadVehiclesJson(alloc: std.mem.Allocator, text: []const u8) !VehiclesJso
     return parsed.value;
 }
 
-/// Every SpriteId must resolve to a file+source across the two files.
-pub fn resolve(tiles: TilesJson, vehicles: VehiclesJson, id: SpriteId) Entry {
+pub fn loadPedsJson(alloc: std.mem.Allocator, text: []const u8) !PedsJson {
+    const parsed = try std.json.parseFromSlice(PedsJson, alloc, text, .{
+        .ignore_unknown_fields = true,
+    });
+    defer parsed.deinit();
+    return parsed.value;
+}
+
+/// Every SpriteId must resolve to a file+source across the files.
+pub fn resolve(tiles: TilesJson, vehicles: VehiclesJson, peds: PedsJson, id: SpriteId) Entry {
     const e = tiles.get(id);
     if (e.file.len > 0) return e;
-    return vehicles.get(id);
+    const v = vehicles.get(id);
+    if (v.file.len > 0) return v;
+    return peds.get(id);
 }
 
 const std = @import("std");
@@ -119,6 +151,11 @@ test "entries parse with defaults" {
     const v = try loadVehiclesJson(std.testing.allocator,
         \\{"sedan":{"file":"s.png","source":"putka-original"}}
     );
-    try std.testing.expectEqualStrings("s.png", resolve(t, v, .sedan).file);
-    try std.testing.expectEqualStrings("a.png", resolve(t, v, .road_plain_a).file);
+    try std.testing.expectEqualStrings("s.png", resolve(t, v, .{}, .sedan).file);
+    try std.testing.expectEqualStrings("a.png", resolve(t, v, .{}, .road_plain_a).file);
+    const p = try loadPedsJson(std.testing.allocator,
+        \\{"ped_civ":{"file":"c.png","source":"putka-original"}}
+    );
+    try std.testing.expectEqualStrings("c.png", resolve(t, v, p, .ped_civ).file);
+    try std.testing.expectEqualStrings("", resolve(t, v, p, .ped_cop).file);
 }

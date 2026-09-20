@@ -14,6 +14,10 @@ pub const Player = struct {
     /// Top-left position of the body box.
     pos: Vec2 = .{},
     vel: Vec2 = .{},
+    /// Last nonzero wish direction (sprite facing).
+    face: Vec2 = .{ .x = 1, .y = 0 },
+    /// Gait phase in radians; advances with speed (rendering bobs with it).
+    phase: f32 = 0,
 
     pub fn center(self: Player) Vec2 {
         return .{ .x = self.pos.x + PLAYER_SIZE.x * 0.5, .y = self.pos.y + PLAYER_SIZE.y * 0.5 };
@@ -23,6 +27,10 @@ pub const Player = struct {
         const speed = if (intent.sprint) WALK_SPEED * SPRINT_MULT else WALK_SPEED;
         const wish = intent.move.scale(speed * dt);
         self.vel = if (dt > 0) intent.move.scale(speed) else .{};
+        if (intent.move.lengthSq() > 1e-6) {
+            self.face = intent.move.normalized();
+            self.phase += dt * speed * 0.12;
+        }
         _ = moveBox(tiles, &self.pos, PLAYER_SIZE, wish);
     }
 };
@@ -43,4 +51,10 @@ test "player moves and is blocked by wall" {
     p.update(tiles, Intent.fromKeys(false, false, true, false), 1.0);
     // Moving left along the wall row: x may change, y must not tunnel.
     try std.testing.expect(p.pos.y == before or p.pos.y < before + 1);
+    // Facing follows input; phase advances only in motion.
+    try std.testing.expect(p.face.eql(.{ .x = -1, .y = 0 }));
+    try std.testing.expect(p.phase > 0);
+    const ph = p.phase;
+    p.update(tiles, Intent{}, 1.0);
+    try std.testing.expectEqual(ph, p.phase);
 }

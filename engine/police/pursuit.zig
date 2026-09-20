@@ -23,6 +23,8 @@ pub const Officer = struct {
     faction: Faction = .police,
     wander_timer: f32 = 2,
     arrest_progress: f32 = 0,
+    /// Gait phase in radians (rendering bob).
+    phase: f32 = 0,
 
     pub fn center(self: Officer) Vec2 {
         return .{ .x = self.pos.x + OFFICER_SIZE.x * 0.5, .y = self.pos.y + OFFICER_SIZE.y * 0.5 };
@@ -49,6 +51,7 @@ pub const Officer = struct {
         switch (self.state) {
             .patrol => {
                 _ = moveBox(tiles, &self.pos, OFFICER_SIZE, self.dir.scale(PATROL_SPEED * dt));
+                self.phase += dt * PATROL_SPEED * 0.12;
                 self.wander_timer -= dt;
                 if (self.wander_timer <= 0) {
                     const a = rand.float(f32) * std.math.pi * 2;
@@ -62,6 +65,7 @@ pub const Officer = struct {
                 if (dist > 1e-3) {
                     self.dir = to.scale(1 / dist);
                     _ = moveBox(tiles, &self.pos, OFFICER_SIZE, self.dir.scale(CHASE_SPEED * dt));
+                    self.phase += dt * CHASE_SPEED * 0.12;
                 }
                 if (dist <= ARREST_RADIUS) {
                     self.arrest_progress += dt;

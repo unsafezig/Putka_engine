@@ -1,0 +1,6 @@
+{
+  "ped_civ": { "file": "putka/peds/ped_civ.png", "scale": 1.5, "source": "putka-original" },
+  "ped_gang": { "file": "putka/peds/ped_gang.png", "scale": 1.5, "source": "putka-original" },
+  "ped_cop": { "file": "putka/peds/ped_cop.png", "scale": 1.5, "source": "putka-original" },
+  "ped_player": { "file": "putka/peds/ped_player.png", "scale": 1.5, "source": "putka-original" }
+}
