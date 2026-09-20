@@ -16,6 +16,7 @@ pub const camera = @import("camera/camera.zig");
 pub const world = struct {
     pub const tile = @import("world/tile.zig");
     pub const map = @import("world/map.zig");
+    pub const loader = @import("world/loader.zig");
 };
 pub const physics = struct {
     pub const collision = @import("physics/collision.zig");
@@ -26,7 +27,16 @@ pub const entities = struct {
 };
 pub const characters = struct {
     pub const player = @import("characters/player.zig");
+    pub const npc = @import("characters/npc.zig");
 };
+pub const vehicles = struct {
+    pub const vehicle = @import("vehicles/vehicle.zig");
+};
+pub const weapons = struct {
+    pub const weapon = @import("weapons/weapon.zig");
+};
+pub const factions = @import("factions/factions.zig");
+pub const wanted = @import("police/wanted.zig");
 
 // Re-export commonly used types at top level for convenience.
 pub const Vec2 = math.vec2.Vec2;
@@ -41,6 +51,9 @@ pub const TileMap = world.map.TileMap;
 pub const EntityId = entities.id.EntityId;
 pub const Registry = entities.registry.Registry;
 pub const Player = characters.player.Player;
+pub const Npc = characters.npc.Npc;
+pub const Vehicle = vehicles.vehicle.Vehicle;
+pub const VehicleParams = vehicles.vehicle.Params;
 
 test {
     // Pull in all engine unit tests.
@@ -51,8 +64,14 @@ test {
     _ = @import("camera/camera.zig");
     _ = @import("world/tile.zig");
     _ = @import("world/map.zig");
+    _ = @import("world/loader.zig");
     _ = @import("physics/collision.zig");
     _ = @import("entities/id.zig");
     _ = @import("entities/registry.zig");
     _ = @import("characters/player.zig");
+    _ = @import("characters/npc.zig");
+    _ = @import("vehicles/vehicle.zig");
+    _ = @import("weapons/weapon.zig");
+    _ = @import("factions/factions.zig");
+    _ = @import("police/wanted.zig");
 }

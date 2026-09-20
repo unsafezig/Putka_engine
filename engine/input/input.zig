@@ -8,6 +8,7 @@ pub const Intent = struct {
     move: Vec2 = .{}, // normalized-ish wish direction, length 0..1
     action: bool = false, // E / interact: enter/exit vehicle, talk, ...
     sprint: bool = false,
+    fire: bool = false, // shoot held
 
     pub fn fromKeys(up: bool, down: bool, left: bool, right: bool) Intent {
         var m: Vec2 = .{};

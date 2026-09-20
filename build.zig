@@ -20,12 +20,20 @@ pub fn build(b: *std.Build) void {
     const raygui_mod = raylib_dep.module("raygui");
     const raylib_artifact = raylib_dep.artifact("raylib");
 
+    // PUTKA game data (embedded JSON). Own package so @embedFile stays
+    // inside the package directory.
+    const data_mod = b.addModule("putka_data", .{
+        .root_source_file = b.path("data/root.zig"),
+        .target = target,
+    });
+
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("game/putka/main.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
             .{ .name = "engine", .module = engine_mod },
+            .{ .name = "putka_data", .module = data_mod },
             .{ .name = "raylib", .module = raylib_mod },
             .{ .name = "raygui", .module = raygui_mod },
         },

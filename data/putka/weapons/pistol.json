@@ -1,0 +1,7 @@
+{
+  "name": "pistol",
+  "damage": 34.0,
+  "range": 420.0,
+  "fire_interval": 0.22,
+  "projectile_speed": 900.0
+}

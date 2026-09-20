@@ -1,0 +1,12 @@
+{
+  "name": "sedan",
+  "accel": 220.0,
+  "brake_decel": 320.0,
+  "max_speed": 340.0,
+  "reverse_max": 120.0,
+  "turn_rate": 2.6,
+  "drag": 0.55,
+  "offroad_drag": 2.2,
+  "length": 44.0,
+  "width": 22.0
+}
