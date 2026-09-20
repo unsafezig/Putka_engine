@@ -1,6 +1,6 @@
 # PUTKA Engine
 
-*A 2D top-down game engine built in **Zig** for GTA 2-style games and **human–AI collaborative game development**.*
+*A 2.5D top-down game engine built in **Zig** for GTA 2-style games and **human–AI collaborative game development**.*
 
 ---
 
