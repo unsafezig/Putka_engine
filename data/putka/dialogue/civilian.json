@@ -1,0 +1,32 @@
+{
+  "id": "civilian",
+  "start": "hello",
+  "nodes": [
+    {
+      "id": "hello",
+      "speaker": "Kulkija",
+      "text": "Olet uusi taalla. Rosvot pitaa etelaista aidanvartta.",
+      "options": [
+        { "text": "Mita taalla tapahtuu?", "goto": "news", "set": ["talked_ped"] },
+        { "text": "Tiedatko poliiseista?", "goto": "cops", "requires": ["m1_done"] },
+        { "text": "Jatka matkaa.", "goto": "", "set": ["talked_ped"] }
+      ]
+    },
+    {
+      "id": "news",
+      "speaker": "Kulkija",
+      "text": "Kuulemma joku kuskaa viesteja. Pysy erossa rosvoista.",
+      "options": [
+        { "text": "Selva.", "goto": "" }
+      ]
+    },
+    {
+      "id": "cops",
+      "speaker": "Kulkija",
+      "text": "Partio kiertaa tauotta. Hiljaa selviaa.",
+      "options": [
+        { "text": "Selva.", "goto": "" }
+      ]
+    }
+  ]
+}

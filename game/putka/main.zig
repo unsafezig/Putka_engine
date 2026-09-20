@@ -33,6 +33,32 @@ fn pollIntent() engine.Intent {
     return intent;
 }
 
+/// Greedy word wrap for the dialogue panel (ASCII demo text).
+/// Returns lines drawn.
+fn drawWrapped(text: []const u8, x: i32, y: i32, max_chars: usize, size: i32, color: rl.Color) i32 {
+    var lines: i32 = 0;
+    var start: usize = 0;
+    while (start < text.len and lines < 6) {
+        var end = @min(start + max_chars, text.len);
+        if (end < text.len) {
+            var cut = end;
+            while (cut > start and text[cut] != ' ') : (cut -= 1) {}
+            if (cut > start) end = cut;
+        }
+        // Trim leading space of continuation lines.
+        while (start < end and text[start] == ' ') : (start += 1) {}
+        if (start >= end) break;
+        var line_buf: [96]u8 = undefined;
+        const n = @min(end - start, line_buf.len);
+        @memcpy(line_buf[0..n], text[start..][0..n]);
+        line_buf[n] = 0;
+        rl.drawText(line_buf[0..n :0], x, y + lines * (size + 6), size, color);
+        start = end;
+        lines += 1;
+    }
+    return lines;
+}
+
 pub fn main(init: std.process.Init) !void {
     var gpa_state = std.heap.DebugAllocator(.{}){};
     defer _ = gpa_state.deinit();
@@ -114,6 +140,8 @@ pub fn main(init: std.process.Init) !void {
     var was_m = false;
     var was_one = false;
     var was_two = false;
+    var was_three = false;
+    var was_esc = false;
 
     // Missions: defs live in the arena, progress in the board + flags.
     var def_arena = std.heap.ArenaAllocator.init(gpa);
@@ -130,6 +158,21 @@ pub fn main(init: std.process.Init) !void {
     defer flag_arena.deinit();
     var board = try engine.missions.Board.init(gpa, &mission_defs, &story_flags);
     defer board.deinit();
+
+    // Dialogues share the def arena (process lifetime).
+    const dlg_defs = [_]engine.dialogue.DialogueDef{
+        try engine.dialogue.loadDefJson(dalloc, putka_data.dlg_civilian),
+        try engine.dialogue.loadDefJson(dalloc, putka_data.dlg_gang),
+        try engine.dialogue.loadDefJson(dalloc, putka_data.dlg_m1_choice),
+    };
+    for (&dlg_defs) |*dd| {
+        engine.dialogue.validate(dd) catch |err| {
+            std.log.warn("dialogue {s} invalid: {}", .{ dd.id, err });
+        };
+    }
+    var convo: ?engine.dialogue.Conversation = null;
+    var convo_mission: ?[]const u8 = null; // mission id answered by this dialogue
+    var was_talk = false;
 
     var killed = std.ArrayList(engine.factions.Faction).empty;
     defer killed.deinit(gpa);
@@ -172,7 +215,7 @@ pub fn main(init: std.process.Init) !void {
                     officers.append(gpa, .{ .pos = post }) catch {};
                 }
             }
-        } else {
+        } else if (convo == null) {
             const steps = sim.push(frame_dt);
         var s: u32 = 0;
         while (s < steps) : (s += 1) {
@@ -340,20 +383,88 @@ pub fn main(init: std.process.Init) !void {
         if (banner_timer > 0) banner_timer -= frame_dt;
 
         // Mission accept (M) and branch choices (1/2) are frame-rate actions.
-        if (rl.isKeyDown(.m) and !was_m and busted_timer <= 0) {
-            if (board.offered()) |offer| board.start(offer.def.id) catch {};
-        }
-        was_m = rl.isKeyDown(.m);
-        if (board.active()) |act| {
-            if (act.state == .awaiting_choice) {
-                if (rl.isKeyDown(.one) and !was_one) board.choose(act.def.id, 0) catch {};
-                if (rl.isKeyDown(.two) and !was_two and act.def.choices.len > 1) {
-                    board.choose(act.def.id, 1) catch {};
+        // An open dialogue owns the number keys instead (see below).
+        if (convo == null) {
+            if (rl.isKeyDown(.m) and !was_m and busted_timer <= 0) {
+                if (board.offered()) |offer| board.start(offer.def.id) catch {};
+            }
+            if (board.active()) |act| {
+                if (act.state == .awaiting_choice and act.def.choice_dialogue.len == 0) {
+                    if (rl.isKeyDown(.one) and !was_one) board.choose(act.def.id, 0) catch {};
+                    if (rl.isKeyDown(.two) and !was_two and act.def.choices.len > 1) {
+                        board.choose(act.def.id, 1) catch {};
+                    }
                 }
             }
         }
+        was_m = rl.isKeyDown(.m);
+
+        // Mission branch through dialogue: auto-open once, answer closes.
+        if (convo == null and convo_mission == null) {
+            if (board.active()) |act| {
+                if (act.state == .awaiting_choice and act.def.choice_dialogue.len > 0) {
+                    for (&dlg_defs) |*dd| {
+                        if (std.mem.eql(u8, dd.id, act.def.choice_dialogue)) {
+                            convo = engine.dialogue.Conversation.start(dd) catch null;
+                            if (convo != null) convo_mission = act.def.id;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Talk (T) opens NPC chatter; number keys answer an open dialogue.
+        if (convo == null and busted_timer <= 0 and !driving) {
+            if (rl.isKeyDown(.t) and !was_talk) {
+                var best: ?*engine.Npc = null;
+                var best_d2: f32 = 64.0 * 64.0;
+                for (npcs.items) |*n| {
+                    if (n.dead) continue;
+                    const d2 = n.center().sub(player.center()).lengthSq();
+                    if (d2 < best_d2) {
+                        best = n;
+                        best_d2 = d2;
+                    }
+                }
+                if (best) |n| {
+                    const dlg_id: []const u8 = if (n.faction == .civilians) "civilian" else "gang";
+                    for (&dlg_defs) |*dd| {
+                        if (std.mem.eql(u8, dd.id, dlg_id)) {
+                            convo = engine.dialogue.Conversation.start(dd) catch null;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        was_talk = rl.isKeyDown(.t);
+        if (convo) |*c| {
+            var pick: ?usize = null;
+            if (rl.isKeyDown(.one) and !was_one) pick = 0;
+            if (rl.isKeyDown(.two) and !was_two) pick = 1;
+            if (rl.isKeyDown(.three) and !was_three) pick = 2;
+            if (pick) |idx| {
+                if (c.select(&story_flags, idx)) |r| {
+                    if (r.mission_choice) |mc| {
+                        if (convo_mission) |mid| board.choose(mid, mc) catch {};
+                        convo = null;
+                        convo_mission = null;
+                    } else if (r.ended) {
+                        convo = null;
+                        convo_mission = null;
+                    }
+                } else |_| {}
+            }
+            // NPC talk can be walked away from; mission answers cannot.
+            if (convo_mission == null and rl.isKeyDown(.escape) and !was_esc) {
+                convo = null;
+            }
+        }
+        was_esc = rl.isKeyDown(.escape);
         was_one = rl.isKeyDown(.one);
         was_two = rl.isKeyDown(.two);
+        was_three = rl.isKeyDown(.three);
         }
 
         const focus = if (driving) car.pos else player.center();
@@ -452,7 +563,7 @@ pub fn main(init: std.process.Init) !void {
             );
         }
         rl.endMode2D();
-        rl.drawText("WASD/arrows: move/drive  E: car  SPACE/J/click: fire  M: mission  F5/F9: save/load", 10, 10, 20, rl.Color.ray_white);
+        rl.drawText("WASD/arrows: move/drive  E: car  SPACE/J/click: fire  T: talk  M: mission  F5/F9: save/load", 10, 10, 20, rl.Color.ray_white);
         var hud_buf: [64]u8 = undefined;
         const alive: u32 = blk: {
             var n: u32 = 0;
@@ -471,7 +582,7 @@ pub fn main(init: std.process.Init) !void {
             if (std.fmt.bufPrintZ(&name_buf, "{s}", .{act.def.name})) |name| {
                 rl.drawText(name, 10, 62, 20, rl.Color.gold);
             } else |_| {}
-            if (act.state == .awaiting_choice) {
+            if (act.state == .awaiting_choice and convo == null) {
                 rl.drawText("Valitse:", 10, 88, 20, rl.Color.ray_white);
                 for (act.def.choices, 0..) |ch, i| {
                     var ch_buf: [96]u8 = undefined;
@@ -507,6 +618,30 @@ pub fn main(init: std.process.Init) !void {
         }
         if (busted_timer > 0) {
             rl.drawText("BUSTED", screen_w / 2 - 110, screen_h / 2 - 30, 60, rl.Color.red);
+        }
+        // Dialogue panel (screen space, above everything else).
+        if (convo) |c| {
+            const px: i32 = 40;
+            const pw: i32 = screen_w - 80;
+            const ph: i32 = 230;
+            const py: i32 = screen_h - ph - 20;
+            rl.drawRectangle(px, py, pw, ph, .{ .r = 10, .g = 10, .b = 14, .a = 230 });
+            rl.drawRectangleLines(px, py, pw, ph, rl.Color.gold);
+            var spk_buf: [64]u8 = undefined;
+            if (std.fmt.bufPrintZ(&spk_buf, "{s}", .{c.node.speaker})) |spk| {
+                rl.drawText(spk, px + 16, py + 10, 20, rl.Color.gold);
+            } else |_| {}
+            const drawn = drawWrapped(c.node.text, px + 16, py + 40, 72, 20, rl.Color.ray_white);
+            var vmap: [8]u8 = undefined;
+            const n = c.visible(&story_flags, &vmap);
+            var i: usize = 0;
+            while (i < n and i < 3) : (i += 1) {
+                const o = &c.node.options[vmap[i]];
+                var ob: [112]u8 = undefined;
+                if (std.fmt.bufPrintZ(&ob, "{d}: {s}", .{ i + 1, o.text })) |line| {
+                    rl.drawText(line, px + 16, py + 44 + drawn * 26 + @as(i32, @intCast(i)) * 26, 20, rl.Color.sky_blue);
+                } else |_| {}
+            }
         }
         rl.drawFPS(screen_w - 100, 10);
         rl.endDrawing();
@@ -557,4 +692,29 @@ test "demo missions load, gate and branch" {
     try std.testing.expect(flags.get("returned_cash"));
     try std.testing.expect(!flags.get("kept_cash"));
     try std.testing.expectEqualStrings("m2b", board.offered().?.def.id);
+}
+
+test "demo dialogues load, validate and answer" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const da = arena.allocator();
+    const defs = [_]engine.dialogue.DialogueDef{
+        try engine.dialogue.loadDefJson(da, putka_data.dlg_civilian),
+        try engine.dialogue.loadDefJson(da, putka_data.dlg_gang),
+        try engine.dialogue.loadDefJson(da, putka_data.dlg_m1_choice),
+    };
+    for (&defs) |*dd| try engine.dialogue.validate(dd);
+    var flags = engine.story.Flags.init(std.testing.allocator);
+    defer flags.deinit();
+    // m1 branch through dialogue option 1.
+    var c = try engine.dialogue.Conversation.start(&defs[2]);
+    const r = try c.select(&flags, 0);
+    try std.testing.expect(r.ended);
+    try std.testing.expectEqual(@as(?u32, 0), r.mission_choice);
+    // Civilian hides the gated option until m1_done.
+    var t = try engine.dialogue.Conversation.start(&defs[0]);
+    var vmap: [8]u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 2), t.visible(&flags, &vmap));
+    try flags.set("m1_done", true);
+    try std.testing.expectEqual(@as(usize, 3), t.visible(&flags, &vmap));
 }

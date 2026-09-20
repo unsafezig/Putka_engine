@@ -10,3 +10,6 @@ pub const crime_table = @embedFile("putka/crimes.json");
 pub const mission_m1 = @embedFile("putka/missions/m1.json");
 pub const mission_m2a = @embedFile("putka/missions/m2a.json");
 pub const mission_m2b = @embedFile("putka/missions/m2b.json");
+pub const dlg_civilian = @embedFile("putka/dialogue/civilian.json");
+pub const dlg_gang = @embedFile("putka/dialogue/gang.json");
+pub const dlg_m1_choice = @embedFile("putka/dialogue/m1_choice.json");

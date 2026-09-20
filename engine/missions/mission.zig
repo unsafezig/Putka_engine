@@ -34,6 +34,9 @@ pub const MissionDef = struct {
     required: []const []const u8 = &.{},
     objectives: []const ObjectiveDef = &.{},
     choices: []const ChoiceDef = &.{},
+    /// Optional dialogue def id rendered for the end choice.
+    /// When empty, the game falls back to its own choice UI.
+    choice_dialogue: []const u8 = "",
     set_on_complete: []const []const u8 = &.{},
     clear_wanted: bool = false,
 };

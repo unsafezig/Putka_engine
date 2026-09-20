@@ -1,0 +1,23 @@
+{
+  "id": "gang",
+  "start": "threat",
+  "nodes": [
+    {
+      "id": "threat",
+      "speaker": "Rosvo",
+      "text": "Mita sina tahdot? Hoida omat asiasi.",
+      "options": [
+        { "text": "Rauhoitu, kaveri.", "goto": "" },
+        { "text": "Velka on maksettava.", "goto": "pay", "set": ["threatened_gang"] }
+      ]
+    },
+    {
+      "id": "pay",
+      "speaker": "Rosvo",
+      "text": "Kokeile peria. Naemme viela.",
+      "options": [
+        { "text": "Lahde.", "goto": "" }
+      ]
+    }
+  ]
+}

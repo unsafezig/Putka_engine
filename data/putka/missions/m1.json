@@ -11,6 +11,7 @@
     { "text": "Ota rahat", "set": ["kept_cash"] },
     { "text": "Jata rahat", "set": ["returned_cash"] }
   ],
+  "choice_dialogue": "m1_choice",
   "set_on_complete": ["m1_done"],
   "clear_wanted": false
 }

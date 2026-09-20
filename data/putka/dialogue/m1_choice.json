@@ -1,0 +1,15 @@
+{
+  "id": "m1_choice",
+  "start": "split",
+  "nodes": [
+    {
+      "id": "split",
+      "speaker": "Valimies",
+      "text": "Viesti perilla. Rahat jaetaan. Ota osuutesi?",
+      "options": [
+        { "text": "Ota rahat.", "goto": "", "mission_choice": 0 },
+        { "text": "Jata rahat.", "goto": "", "mission_choice": 1 }
+      ]
+    }
+  ]
+}
