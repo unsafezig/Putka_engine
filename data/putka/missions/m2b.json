@@ -1,0 +1,13 @@
+{
+  "id": "m2b",
+  "name": "Sovinto",
+  "briefing": "Maksoit velan. Pysy rauhassa.",
+  "required": ["returned_cash"],
+  "objectives": [
+    { "type": "survive", "desc": "Pysy rauhassa", "duration": 15.0 },
+    { "type": "go_to", "desc": "Mene takaisin", "x": 432.0, "y": 208.0, "radius": 48.0 }
+  ],
+  "choices": [],
+  "set_on_complete": ["m2b_done"],
+  "clear_wanted": false
+}

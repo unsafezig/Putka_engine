@@ -107,7 +107,13 @@ pub const Npc = struct {
     }
 };
 
-pub const SweepResult = struct { hits: u32 = 0, kills: u32 = 0 };
+pub const SweepResult = struct {
+    hits: u32 = 0,
+    kills: u32 = 0,
+    /// Factions of the killed (truncated at 8 per step; `kills` is exact).
+    killed: [8]Faction = undefined,
+    killed_count: u8 = 0,
+};
 
 /// Bullets vs bodies. Removes shots that connect.
 pub fn sweepShots(shots: *Shots, npcs: []Npc) SweepResult {
@@ -122,7 +128,13 @@ pub fn sweepShots(shots: *Shots, npcs: []Npc) SweepResult {
             if (s.pos.sub(n.center()).lengthSq() <= BODY_RADIUS * BODY_RADIUS) {
                 connected = true;
                 res.hits += 1;
-                if (n.damage(s.damage)) res.kills += 1;
+                if (n.damage(s.damage)) {
+                    res.kills += 1;
+                    if (res.killed_count < res.killed.len) {
+                        res.killed[res.killed_count] = n.faction;
+                        res.killed_count += 1;
+                    }
+                }
                 break;
             }
         }
@@ -193,10 +205,12 @@ test "sweep connects shots to bodies" {
         .left = 100,
         .damage = 100,
     });
-    var npcs = [_]Npc{.{ .pos = .{ .x = 100 - NPC_SIZE.x * 0.5, .y = 100 - NPC_SIZE.y * 0.5 } }};
+    var npcs = [_]Npc{.{ .pos = .{ .x = 100 - NPC_SIZE.x * 0.5, .y = 100 - NPC_SIZE.y * 0.5 }, .faction = .gang_a }};
     const res = sweepShots(&shots, &npcs);
     try std.testing.expectEqual(@as(u32, 1), res.hits);
     try std.testing.expectEqual(@as(u32, 1), res.kills);
+    try std.testing.expectEqual(@as(u8, 1), res.killed_count);
+    try std.testing.expect(res.killed[0] == .gang_a);
     try std.testing.expectEqual(@as(usize, 0), shots.items.items.len);
 }
 

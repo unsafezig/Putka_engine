@@ -4,6 +4,8 @@
 
 const Npc = @import("../characters/npc.zig").Npc;
 const Officer = @import("../police/pursuit.zig").Officer;
+const Flag = @import("../story/story.zig").Flag;
+const MissionSave = @import("../missions/mission.zig").MissionSave;
 const Vec2 = @import("../math/vec2.zig").Vec2;
 
 pub const CURRENT_VERSION: u32 = 1;
@@ -20,6 +22,8 @@ pub const Snapshot = struct {
     wanted_heat: f32 = 0,
     npcs: []const Npc = &.{},
     officers: []const Officer = &.{},
+    story: []const Flag = &.{},
+    missions: []const MissionSave = &.{},
 };
 
 pub const SaveError = error{VersionMismatch};

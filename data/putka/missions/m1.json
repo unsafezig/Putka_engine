@@ -1,0 +1,16 @@
+{
+  "id": "m1",
+  "name": "Viesti",
+  "briefing": "Vie viesti perille. Perilla valinta.",
+  "required": [],
+  "objectives": [
+    { "type": "go_to", "desc": "Mene tapaamiseen", "x": 400.0, "y": 208.0, "radius": 48.0 },
+    { "type": "go_to", "desc": "Vie viesti etelaan", "x": 432.0, "y": 592.0, "radius": 48.0 }
+  ],
+  "choices": [
+    { "text": "Ota rahat", "set": ["kept_cash"] },
+    { "text": "Jata rahat", "set": ["returned_cash"] }
+  ],
+  "set_on_complete": ["m1_done"],
+  "clear_wanted": false
+}

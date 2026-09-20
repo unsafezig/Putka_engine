@@ -111,6 +111,28 @@ pub fn main(init: std.process.Init) !void {
     var banner_timer: f32 = 0;
     var was_save = false;
     var was_load = false;
+    var was_m = false;
+    var was_one = false;
+    var was_two = false;
+
+    // Missions: defs live in the arena, progress in the board + flags.
+    var def_arena = std.heap.ArenaAllocator.init(gpa);
+    defer def_arena.deinit();
+    const dalloc = def_arena.allocator();
+    const mission_defs = [_]engine.missions.MissionDef{
+        try engine.missions.loadDefJson(dalloc, putka_data.mission_m1),
+        try engine.missions.loadDefJson(dalloc, putka_data.mission_m2a),
+        try engine.missions.loadDefJson(dalloc, putka_data.mission_m2b),
+    };
+    var story_flags = engine.story.Flags.init(gpa);
+    defer story_flags.deinit();
+    var flag_arena = std.heap.ArenaAllocator.init(gpa);
+    defer flag_arena.deinit();
+    var board = try engine.missions.Board.init(gpa, &mission_defs, &story_flags);
+    defer board.deinit();
+
+    var killed = std.ArrayList(engine.factions.Faction).empty;
+    defer killed.deinit(gpa);
 
     const screen_w = 1280;
     const screen_h = 720;
@@ -200,9 +222,11 @@ pub fn main(init: std.process.Init) !void {
                 }
             }
             engine.weapons.weapon.updateShots(&shots, map, sim.dt);
+            killed.clearRetainingCapacity();
             const sweep = engine.characters.npc.sweepShots(&shots, npcs.items);
             if (sweep.kills > 0) {
                 wanted.addHeat(crimes.kill * @as(f32, @floatFromInt(sweep.kills)));
+                killed.appendSlice(gpa, sweep.killed[0..sweep.killed_count]) catch {};
             }
             // Show last gunshot to witnesses even if this step's shot missed.
             var car_threat: ?engine.characters.npc.Threat = null;
@@ -214,6 +238,7 @@ pub fn main(init: std.process.Init) !void {
                 n.update(map, &rng, sim.dt, threat orelse car_threat);
                 if (driving and engine.characters.npc.checkRunOver(n, car.pos, car_params.width * 0.5, car.speed)) {
                     wanted.addHeat(crimes.runover);
+                    killed.append(gpa, n.faction) catch {};
                 }
             }
             wanted.update(sim.dt, !intent.fire);
@@ -224,6 +249,25 @@ pub fn main(init: std.process.Init) !void {
                 if (o.update(map, &rng, sim.dt, target, wanted.level())) {
                     busted_timer = 3.0;
                     wanted.heat = 0;
+                    if (board.active() != null) {
+                        board.failActive();
+                        banner = "Tehtava epaonnistui";
+                        banner_timer = 3;
+                    }
+                }
+            }
+
+            // Missions consume the step's kills and wanted level.
+            const mev = board.update(sim.dt, target, wanted.level(), killed.items);
+            if (mev.objectives_done > 0) {
+                banner = "Tehtava etenee";
+                banner_timer = 2;
+            }
+            if (mev.completed_id) |mid| {
+                banner = "Tehtava valmis";
+                banner_timer = 3;
+                for (mission_defs) |md| {
+                    if (std.mem.eql(u8, md.id, mid) and md.clear_wanted) wanted.heat = 0;
                 }
             }
         }
@@ -234,6 +278,10 @@ pub fn main(init: std.process.Init) !void {
         was_save = rl.isKeyDown(.f5);
         was_load = rl.isKeyDown(.f9);
         if (save_pressed and busted_timer <= 0) {
+            const story_list = story_flags.toList(gpa) catch &.{};
+            defer gpa.free(story_list);
+            const mission_saves = board.save(gpa) catch &.{};
+            defer gpa.free(mission_saves);
             const snap = engine.save.Snapshot{
                 .player_pos = player.pos,
                 .car_pos = car.pos,
@@ -243,6 +291,8 @@ pub fn main(init: std.process.Init) !void {
                 .wanted_heat = wanted.heat,
                 .npcs = npcs.items,
                 .officers = officers.items,
+                .story = story_list,
+                .missions = mission_saves,
             };
             if (engine.save.saveToDir(cwd, io, engine.save.SAVE_NAME, snap, gpa)) {
                 banner = "SAVED";
@@ -270,6 +320,16 @@ pub fn main(init: std.process.Init) !void {
                 npcs.appendSlice(gpa, snap.npcs) catch {};
                 officers.clearRetainingCapacity();
                 officers.appendSlice(gpa, snap.officers) catch {};
+                // Flag keys from the save borrow parsed JSON: copy them
+                // into the long-lived arena before the parse is freed.
+                flag_arena.deinit();
+                flag_arena = std.heap.ArenaAllocator.init(gpa);
+                story_flags.map.clearRetainingCapacity();
+                for (snap.story) |f| {
+                    const key = flag_arena.allocator().dupe(u8, f.key) catch continue;
+                    story_flags.set(key, f.value) catch {};
+                }
+                board.load(snap.missions);
                 banner = "LOADED";
                 banner_timer = 2;
             } else |_| {
@@ -278,6 +338,22 @@ pub fn main(init: std.process.Init) !void {
             }
         }
         if (banner_timer > 0) banner_timer -= frame_dt;
+
+        // Mission accept (M) and branch choices (1/2) are frame-rate actions.
+        if (rl.isKeyDown(.m) and !was_m and busted_timer <= 0) {
+            if (board.offered()) |offer| board.start(offer.def.id) catch {};
+        }
+        was_m = rl.isKeyDown(.m);
+        if (board.active()) |act| {
+            if (act.state == .awaiting_choice) {
+                if (rl.isKeyDown(.one) and !was_one) board.choose(act.def.id, 0) catch {};
+                if (rl.isKeyDown(.two) and !was_two and act.def.choices.len > 1) {
+                    board.choose(act.def.id, 1) catch {};
+                }
+            }
+        }
+        was_one = rl.isKeyDown(.one);
+        was_two = rl.isKeyDown(.two);
         }
 
         const focus = if (driving) car.pos else player.center();
@@ -376,7 +452,7 @@ pub fn main(init: std.process.Init) !void {
             );
         }
         rl.endMode2D();
-        rl.drawText("WASD/arrows: move/drive  E: car  SPACE/J/click: fire  F5: save  F9: load", 10, 10, 20, rl.Color.ray_white);
+        rl.drawText("WASD/arrows: move/drive  E: car  SPACE/J/click: fire  M: mission  F5/F9: save/load", 10, 10, 20, rl.Color.ray_white);
         var hud_buf: [64]u8 = undefined;
         const alive: u32 = blk: {
             var n: u32 = 0;
@@ -389,11 +465,43 @@ pub fn main(init: std.process.Init) !void {
             const col = if (wanted.level() == 0) rl.Color.ray_white else rl.Color.red;
             rl.drawText(hud, 10, 36, 20, col);
         } else |_| {}
+        // Mission tracker: offer, active objective, or branch choice.
+        if (board.active()) |act| {
+            var name_buf: [96]u8 = undefined;
+            if (std.fmt.bufPrintZ(&name_buf, "{s}", .{act.def.name})) |name| {
+                rl.drawText(name, 10, 62, 20, rl.Color.gold);
+            } else |_| {}
+            if (act.state == .awaiting_choice) {
+                rl.drawText("Valitse:", 10, 88, 20, rl.Color.ray_white);
+                for (act.def.choices, 0..) |ch, i| {
+                    var ch_buf: [96]u8 = undefined;
+                    if (std.fmt.bufPrintZ(&ch_buf, "{d}: {s}", .{ i + 1, ch.text })) |line| {
+                        rl.drawText(line, 10, 114 + @as(i32, @intCast(i)) * 26, 20, rl.Color.ray_white);
+                    } else |_| {}
+                }
+            } else if (act.obj_idx < act.def.objectives.len) {
+                const o = act.def.objectives[act.obj_idx];
+                var obj_buf: [128]u8 = undefined;
+                const line = switch (o.type) {
+                    .kill => std.fmt.bufPrintZ(&obj_buf, "{s} {d}/{d}", .{ o.desc, @min(act.count, o.count), o.count }),
+                    .survive => std.fmt.bufPrintZ(&obj_buf, "{s} {d}s", .{ o.desc, @as(u32, @intFromFloat(@max(0, act.timer))) }),
+                    else => std.fmt.bufPrintZ(&obj_buf, "{s}", .{o.desc}),
+                };
+                if (line) |l| {
+                    rl.drawText(l, 10, 88, 20, rl.Color.ray_white);
+                } else |_| {}
+            }
+        } else if (board.offered()) |offer| {
+            var off_buf: [128]u8 = undefined;
+            if (std.fmt.bufPrintZ(&off_buf, "M: {s} - {s}", .{ offer.def.name, offer.def.briefing })) |line| {
+                rl.drawText(line, 10, 62, 20, rl.Color.lime);
+            } else |_| {}
+        }
         if (banner_timer > 0) {
             if (banner) |msg| {
                 var msg_buf: [32]u8 = undefined;
                 if (std.fmt.bufPrintZ(&msg_buf, "{s}", .{msg})) |m| {
-                    rl.drawText(m, 10, 62, 20, rl.Color.gold);
+                    rl.drawText(m, 10, 140, 20, rl.Color.gold);
                 } else |_| {}
             }
         }
@@ -414,8 +522,7 @@ test "demo wiring smoke test" {
     try std.testing.expect(p.pos.y > 0);
 }
 
-test "mini_city.json loads with cross roads and solid buildings" {
-    var map = try engine.world.loader.loadMapJson(std.testing.allocator, putka_data.mini_city_map);
+test "mini_city.json loads with cross roads and solid buildings" {    var map = try engine.world.loader.loadMapJson(std.testing.allocator, putka_data.mini_city_map);
     defer map.deinit();
     try std.testing.expectEqual(@as(u32, 24), map.width);
     try std.testing.expectEqual(@as(u32, 24), map.height);
@@ -423,4 +530,31 @@ test "mini_city.json loads with cross roads and solid buildings" {
     try std.testing.expect(map.get(3, 12).?.type == .road);
     try std.testing.expect(map.get(2, 2).?.solid);
     try std.testing.expect(!map.get(0, 0).?.solid);
+}
+
+test "demo missions load, gate and branch" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const da = arena.allocator();
+    const defs = [_]engine.missions.MissionDef{
+        try engine.missions.loadDefJson(da, putka_data.mission_m1),
+        try engine.missions.loadDefJson(da, putka_data.mission_m2a),
+        try engine.missions.loadDefJson(da, putka_data.mission_m2b),
+    };
+    var flags = engine.story.Flags.init(std.testing.allocator);
+    defer flags.deinit();
+    var board = try engine.missions.Board.init(std.testing.allocator, &defs, &flags);
+    defer board.deinit();
+
+    // Only m1 offered at first; its first go_to point works.
+    try std.testing.expectEqualStrings("m1", board.offered().?.def.id);
+    try board.start("m1");
+    const ev = board.update(0.016, .{ .x = 400, .y = 208 }, 0, &.{});
+    try std.testing.expectEqual(@as(u32, 1), ev.objectives_done);
+    // Branch: choice 2 opens m2b, not m2a.
+    _ = board.update(0.016, .{ .x = 432, .y = 592 }, 0, &.{});
+    try board.choose("m1", 1);
+    try std.testing.expect(flags.get("returned_cash"));
+    try std.testing.expect(!flags.get("kept_cash"));
+    try std.testing.expectEqualStrings("m2b", board.offered().?.def.id);
 }

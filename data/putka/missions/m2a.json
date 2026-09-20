@@ -1,0 +1,13 @@
+{
+  "id": "m2a",
+  "name": "Velat",
+  "briefing": "Rosvo ei maksanut. Hoida asia.",
+  "required": ["kept_cash"],
+  "objectives": [
+    { "type": "kill", "desc": "Hoida yksi rosvo", "faction": "gang_a", "count": 1 },
+    { "type": "escape", "desc": "Karista poliisit" }
+  ],
+  "choices": [],
+  "set_on_complete": ["m2a_done"],
+  "clear_wanted": true
+}

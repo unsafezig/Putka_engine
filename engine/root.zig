@@ -39,6 +39,8 @@ pub const factions = @import("factions/factions.zig");
 pub const wanted = @import("police/wanted.zig");
 pub const pursuit = @import("police/pursuit.zig");
 pub const save = @import("save/save.zig");
+pub const story = @import("story/story.zig");
+pub const missions = @import("missions/mission.zig");
 
 // Re-export commonly used types at top level for convenience.
 pub const Vec2 = math.vec2.Vec2;
@@ -78,4 +80,6 @@ test {
     _ = @import("police/wanted.zig");
     _ = @import("police/pursuit.zig");
     _ = @import("save/save.zig");
+    _ = @import("story/story.zig");
+    _ = @import("missions/mission.zig");
 }
