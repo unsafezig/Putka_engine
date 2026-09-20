@@ -13,6 +13,10 @@ pub const SpriteId = enum {
     ground_b,
     walk_a,
     walk_b,
+    roof_a,
+    roof_b,
+    wall_south,
+    wall_block,
     sedan,
     sedan_brake,
     glow,
@@ -36,6 +40,10 @@ pub const TilesJson = struct {
     ground_b: Entry = .{},
     walk_a: Entry = .{},
     walk_b: Entry = .{},
+    roof_a: Entry = .{},
+    roof_b: Entry = .{},
+    wall_south: Entry = .{},
+    wall_block: Entry = .{},
 
     pub fn get(self: TilesJson, id: SpriteId) Entry {
         return switch (id) {
@@ -48,6 +56,10 @@ pub const TilesJson = struct {
             .ground_b => self.ground_b,
             .walk_a => self.walk_a,
             .walk_b => self.walk_b,
+            .roof_a => self.roof_a,
+            .roof_b => self.roof_b,
+            .wall_south => self.wall_south,
+            .wall_block => self.wall_block,
             else => .{},
         };
     }

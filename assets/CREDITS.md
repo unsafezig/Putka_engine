@@ -22,6 +22,8 @@ Mapping from pack to local files:
 
 - `putka/vehicles/sedan.png`, `sedan_brake.png` — top-down sedan drawn for PUTKA
 - `putka/fx/glow.png`, `vignette.png` — generated overlays
+- `putka/tiles/roof_a.png`, `roof_b.png` — tar-paper roofs with vents/skylights
+- `putka/tiles/wall_south.png`, `wall_block.png` — concrete wall faces
 
 Rule: no binary goes here without a row above (third-party source) or
 an "Original" note. See `data/putka/sprites/*.json` for usage mapping.

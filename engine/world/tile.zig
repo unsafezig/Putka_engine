@@ -14,6 +14,9 @@ pub const Tile = struct {
     type: TileType = .grass,
     /// Gameplay collision. Rendering reads the same flag, owns nothing.
     solid: bool = false,
+    /// Visual height in levels (0 = flat). Gameplay ignores it;
+    /// districts/builders assign it, rendering turns it into roofs+walls.
+    height: u8 = 0,
 
     pub fn isDriveable(t: Tile) bool {
         return t.type == .road or t.type == .bridge;

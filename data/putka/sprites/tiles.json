@@ -7,5 +7,9 @@
   "ground_a": { "file": "putka/tiles/ground_a.png", "scale": 2.0, "source": "kenney-cc0" },
   "ground_b": { "file": "putka/tiles/ground_b.png", "scale": 2.0, "source": "kenney-cc0" },
   "walk_a": { "file": "putka/tiles/walk_a.png", "scale": 2.0, "source": "kenney-cc0" },
-  "walk_b": { "file": "putka/tiles/walk_b.png", "scale": 2.0, "source": "kenney-cc0" }
+  "walk_b": { "file": "putka/tiles/walk_b.png", "scale": 2.0, "source": "kenney-cc0" },
+  "roof_a": { "file": "putka/tiles/roof_a.png", "scale": 2.0, "source": "putka-original" },
+  "roof_b": { "file": "putka/tiles/roof_b.png", "scale": 2.0, "source": "putka-original" },
+  "wall_south": { "file": "putka/tiles/wall_south.png", "scale": 2.0, "source": "putka-original" },
+  "wall_block": { "file": "putka/tiles/wall_block.png", "scale": 2.0, "source": "putka-original" }
 }

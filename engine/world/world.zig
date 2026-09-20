@@ -205,25 +205,25 @@ fn paveSector(s: *Sector, block: u8) !void {
         s.map.set(0, i, .{ .type = .road });
     }
     switch (block) {
-        'R' => { // residential: building blocks in the interior corners
+        'R' => { // residential: low (h=1) building blocks in the interior corners
             const spots = [_]struct { x: i32, y: i32 }{ .{ .x = 3, .y = 3 }, .{ .x = size - 6, .y = 3 }, .{ .x = 3, .y = size - 5 }, .{ .x = size - 6, .y = size - 5 } };
             for (spots) |b| {
                 var dy: i32 = 0;
                 while (dy < 2) : (dy += 1) {
                     var dx: i32 = 0;
                     while (dx < 3) : (dx += 1) {
-                        s.map.set(b.x + dx, b.y + dy, .{ .type = .building, .solid = true });
+                        s.map.set(b.x + dx, b.y + dy, .{ .type = .building, .solid = true, .height = 1 });
                     }
                 }
             }
         },
-        'C' => { // commercial: big central block + sidewalk ring
+        'C' => { // commercial: tall (h=2) central block + sidewalk ring
             var y: i32 = 4;
             while (y < size - 4) : (y += 1) {
                 var x: i32 = 4;
                 while (x < size - 4) : (x += 1) {
                     const edge = x == 4 or y == 4 or x == size - 5 or y == size - 5;
-                    s.map.set(x, y, if (edge) .{ .type = .sidewalk } else .{ .type = .building, .solid = true });
+                    s.map.set(x, y, if (edge) .{ .type = .sidewalk } else .{ .type = .building, .solid = true, .height = 2 });
                 }
             }
         },
@@ -253,6 +253,8 @@ test "districts load: borders connect, interiors differ" {
     try std.testing.expect(w.get(0, 16).?.type == .road);
     // Residential interior has solid buildings; park does not.
     try std.testing.expect(w.get(3, 3).?.solid);
+    try std.testing.expectEqual(@as(u8, 1), w.get(3, 3).?.height);
+    try std.testing.expectEqual(@as(u8, 2), w.get(24, 8).?.height); // commercial core
     try std.testing.expect(!w.get(3, 19).?.solid);
     try std.testing.expect(w.get(3, 19).?.type == .grass);
     // Outside the world: null.

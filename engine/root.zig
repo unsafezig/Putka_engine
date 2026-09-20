@@ -48,6 +48,7 @@ pub const dialogue = @import("dialogue/dialogue.zig");
 pub const rendering = struct {
     pub const sprites = @import("rendering/sprites.zig");
     pub const autotile = @import("rendering/autotile.zig");
+    pub const height = @import("rendering/height.zig");
 };
 
 // Re-export commonly used types at top level for convenience.
@@ -96,4 +97,5 @@ test {
     _ = @import("dialogue/dialogue.zig");
     _ = @import("rendering/sprites.zig");
     _ = @import("rendering/autotile.zig");
+    _ = @import("rendering/height.zig");
 }

@@ -32,8 +32,8 @@ fn tileFromGlyph(g: u8) LoadError!Tile {
         'R' => .{ .type = .road },
         's' => .{ .type = .sidewalk },
         '~' => .{ .type = .water, .solid = true },
-        '#' => .{ .type = .wall, .solid = true },
-        'B' => .{ .type = .building, .solid = true },
+        '#' => .{ .type = .wall, .solid = true, .height = 1 },
+        'B' => .{ .type = .building, .solid = true, .height = 1 },
         '=' => .{ .type = .bridge },
         else => LoadError.UnknownGlyph,
     };

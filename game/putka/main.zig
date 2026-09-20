@@ -30,7 +30,8 @@ fn tileSpriteId(tiles: Tiles, tx: i32, ty: i32) ?Sprites.SpriteId {
         },
         .grass => if (Autotile.variant(tx, ty, 2) == 0) .ground_a else .ground_b,
         .sidewalk => if (Autotile.variant(tx, ty, 2) == 0) .walk_a else .walk_b,
-        else => null,
+        .wall => .wall_block,
+        else => null, // buildings render as roofs+walls; water stays flat
     };
 }
 
@@ -557,6 +558,7 @@ pub fn main(init: std.process.Init) !void {
                         tint,
                     );
                 } else if (tiles.get(tx, ty)) |t| {
+                    if (t.type == .building) continue; // roofs pass draws these
                     var col = tileColor(t.type);
                     if (dim) {
                         col = .{ .r = col.r / 2, .g = col.g / 2, .b = col.b / 2, .a = col.a };
@@ -578,58 +580,147 @@ pub fn main(init: std.process.Init) !void {
                 }
             }
         }
-        // Car sprite: brake variant under braking, headlight halos ahead.
+        // Building south walls (merged interiors expose no faces).
         {
-            const tex = texm.get(if (brake_light) .sedan_brake else .sedan);
-            const rot = car.heading * 180.0 / std.math.pi;
-            if (driving) {
-                const fwd = car.forward();
-                const side = engine.Vec2{ .x = -fwd.y, .y = fwd.x };
-                const glow = texm.get(.glow);
-                for ([2]f32{ -1, 1 }) |s| {
-                    const hp = car.pos.add(fwd.scale(30)).add(side.scale(s * 9));
-                    rl.drawTextureEx(glow, .{ .x = hp.x - 9, .y = hp.y - 9 }, 0, 1.5, .{ .r = 255, .g = 240, .b = 200, .a = 160 });
+            const wall_tex = texm.get(.wall_south);
+            var wy: i32 = ty0;
+            while (wy <= ty1) : (wy += 1) {
+                var wx: i32 = tx0;
+                while (wx <= tx1) : (wx += 1) {
+                    const bt = tiles.get(wx, wy) orelse continue;
+                    if (bt.type != .building or bt.height == 0) continue;
+                    if (!engine.rendering.height.faces(tiles, wx, wy).south) continue;
+                    const lift = engine.rendering.height.roofLift(bt.height);
+                    rl.drawTexturePro(
+                        wall_tex,
+                        .{ .x = 0, .y = 0, .width = 16, .height = 16 },
+                        .{
+                            .x = @as(f32, @floatFromInt(wx * TILE_PX)),
+                            .y = @as(f32, @floatFromInt((wy + 1) * TILE_PX)) - lift,
+                            .width = TILE_PX,
+                            .height = lift,
+                        },
+                        .{ .x = 0, .y = 0 },
+                        0,
+                        .white,
+                    );
                 }
             }
-            rl.drawTexturePro(
-                tex,
-                .{ .x = 0, .y = 0, .width = 22, .height = 11 },
-                .{ .x = car.pos.x - 22, .y = car.pos.y - 11, .width = 44, .height = 22 },
-                .{ .x = 22, .y = 11 },
-                rot,
-                .white,
-            );
         }
-        // Player (hidden while driving).
-        if (!driving) {
-            rl.drawRectangleRec(
-                .{
-                    .x = player.pos.x,
-                    .y = player.pos.y,
-                    .width = engine.characters.player.PLAYER_SIZE.x,
-                    .height = engine.characters.player.PLAYER_SIZE.y,
-                },
-                rl.Color.red,
-            );
+        // Entities y-sorted by feet, each with a contact shadow.
+        {
+            const Ent = struct { y: f32, tag: u8, idx: u32 };
+            var order: [40]Ent = undefined;
+            var n_ent: usize = 0;
+            order[n_ent] = .{ .y = car.pos.y, .tag = 0, .idx = 0 };
+            n_ent += 1;
+            if (!driving) {
+                order[n_ent] = .{ .y = player.center().y, .tag = 1, .idx = 0 };
+                n_ent += 1;
+            }
+            for (npcs.items, 0..) |*e_npc, i| {
+                if (e_npc.dead) continue;
+                if (n_ent < order.len) {
+                    order[n_ent] = .{ .y = e_npc.center().y, .tag = 2, .idx = @intCast(i) };
+                    n_ent += 1;
+                }
+            }
+            for (officers.items, 0..) |*e_off, i| {
+                if (n_ent < order.len) {
+                    order[n_ent] = .{ .y = e_off.center().y, .tag = 3, .idx = @intCast(i) };
+                    n_ent += 1;
+                }
+            }
+            var ai: usize = 1;
+            while (ai < n_ent) : (ai += 1) {
+                const key = order[ai];
+                var bi: usize = ai;
+                while (bi > 0 and order[bi - 1].y > key.y) {
+                    order[bi] = order[bi - 1];
+                    bi -= 1;
+                }
+                order[bi] = key;
+            }
+            const shadow: rl.Color = .{ .r = 0, .g = 0, .b = 0, .a = 110 };
+            const siren = @mod(@as(i32, @intFromFloat(rl.getTime() * 4)), 2) == 0;
+            for (order[0..n_ent]) |e| {
+                switch (e.tag) {
+                    0 => {
+                        rl.drawEllipse(
+                            @as(i32, @intFromFloat(car.pos.x)),
+                            @as(i32, @intFromFloat(car.pos.y + 10)),
+                            20,
+                            6,
+                            shadow,
+                        );
+                        const tex = texm.get(if (brake_light) .sedan_brake else .sedan);
+                        if (driving) {
+                            const fwd = car.forward();
+                            const side = engine.Vec2{ .x = -fwd.y, .y = fwd.x };
+                            const glow = texm.get(.glow);
+                            for ([2]f32{ -1, 1 }) |s| {
+                                const hp = car.pos.add(fwd.scale(30)).add(side.scale(s * 9));
+                                rl.drawTextureEx(glow, .{ .x = hp.x - 9, .y = hp.y - 9 }, 0, 1.5, .{ .r = 255, .g = 240, .b = 200, .a = 160 });
+                            }
+                        }
+                        rl.drawTexturePro(
+                            tex,
+                            .{ .x = 0, .y = 0, .width = 22, .height = 11 },
+                            .{ .x = car.pos.x - 22, .y = car.pos.y - 11, .width = 44, .height = 22 },
+                            .{ .x = 22, .y = 11 },
+                            car.heading * 180.0 / std.math.pi,
+                            .white,
+                        );
+                    },
+                    1 => {
+                        const c = player.center();
+                        rl.drawEllipse(@as(i32, @intFromFloat(c.x)), @as(i32, @intFromFloat(c.y + 9)), 9, 3.5, shadow);
+                        rl.drawRectangleRec(
+                            .{
+                                .x = player.pos.x,
+                                .y = player.pos.y,
+                                .width = engine.characters.player.PLAYER_SIZE.x,
+                                .height = engine.characters.player.PLAYER_SIZE.y,
+                            },
+                            rl.Color.red,
+                        );
+                    },
+                    2 => {
+                        const n = npcs.items[e.idx];
+                        const c = n.center();
+                        rl.drawEllipse(@as(i32, @intFromFloat(c.x)), @as(i32, @intFromFloat(c.y + 8)), 9, 3.5, shadow);
+                        const col = if (n.state == .panic)
+                            rl.Color.yellow
+                        else if (relations.get(n.faction, .player) == .hostile)
+                            rl.Color.purple
+                        else
+                            rl.Color.lime;
+                        rl.drawCircle(
+                            @as(i32, @intFromFloat(c.x)),
+                            @as(i32, @intFromFloat(c.y)),
+                            engine.characters.npc.BODY_RADIUS,
+                            col,
+                        );
+                    },
+                    else => {
+                        const o = officers.items[e.idx];
+                        const c = o.center();
+                        rl.drawEllipse(@as(i32, @intFromFloat(c.x)), @as(i32, @intFromFloat(c.y + 8)), 9, 3.5, shadow);
+                        const col = if (o.state == .chase)
+                            if (siren) rl.Color.red else rl.Color.blue
+                        else
+                            rl.Color.dark_blue;
+                        rl.drawCircle(
+                            @as(i32, @intFromFloat(c.x)),
+                            @as(i32, @intFromFloat(c.y)),
+                            engine.pursuit.OFFICER_SIZE.x * 0.5,
+                            col,
+                        );
+                    },
+                }
+            }
         }
-        // Pedestrians: green civilians, purple hostiles, yellow when panicking.
-        for (npcs.items) |n| {
-            if (n.dead) continue;
-            const c = n.center();
-            const col = if (n.state == .panic)
-                rl.Color.yellow
-            else if (relations.get(n.faction, .player) == .hostile)
-                rl.Color.purple
-            else
-                rl.Color.lime;
-            rl.drawCircle(
-                @as(i32, @intFromFloat(c.x)),
-                @as(i32, @intFromFloat(c.y)),
-                engine.characters.npc.BODY_RADIUS,
-                col,
-            );
-        }
-        // Live bullets.
+        // Live bullets (over entities, under roofs).
         for (shots.items.items) |shot| {
             rl.drawCircle(
                 @as(i32, @intFromFloat(shot.pos.x)),
@@ -638,20 +729,31 @@ pub fn main(init: std.process.Init) !void {
                 rl.Color.ray_white,
             );
         }
-        // Officers: dark blue on patrol, flashing red/blue in pursuit.
-        const siren = @mod(@as(i32, @intFromFloat(rl.getTime() * 4)), 2) == 0;
-        for (officers.items) |o| {
-            const c = o.center();
-            const col = if (o.state == .chase)
-                if (siren) rl.Color.red else rl.Color.blue
-            else
-                rl.Color.dark_blue;
-            rl.drawCircle(
-                @as(i32, @intFromFloat(c.x)),
-                @as(i32, @intFromFloat(c.y)),
-                engine.pursuit.OFFICER_SIZE.x * 0.5,
-                col,
-            );
+        // Roofs last: they cap the walls and hide what stands behind.
+        {
+            var ry: i32 = ty0;
+            while (ry <= ty1) : (ry += 1) {
+                var rx: i32 = tx0;
+                while (rx <= tx1) : (rx += 1) {
+                    const bt = tiles.get(rx, ry) orelse continue;
+                    if (bt.type != .building or bt.height == 0) continue;
+                    const lift = engine.rendering.height.roofLift(bt.height);
+                    const tex = texm.get(if (engine.rendering.autotile.variant(rx, ry, 2) == 0) .roof_a else .roof_b);
+                    rl.drawTexturePro(
+                        tex,
+                        .{ .x = 0, .y = 0, .width = 16, .height = 16 },
+                        .{
+                            .x = @as(f32, @floatFromInt(rx * TILE_PX)),
+                            .y = @as(f32, @floatFromInt(ry * TILE_PX)) - lift,
+                            .width = TILE_PX,
+                            .height = TILE_PX,
+                        },
+                        .{ .x = 0, .y = 0 },
+                        0,
+                        .white,
+                    );
+                }
+            }
         }
         // Active go_to target marker.
         if (board.active()) |act| {
