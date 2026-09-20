@@ -1,0 +1,4 @@
+# Zig build artifacts (regenerable via `zig build --fetch` + `zig build`)
+.zig-cache/
+zig-out/
+zig-pkg/
