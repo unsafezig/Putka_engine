@@ -37,6 +37,8 @@ pub const weapons = struct {
 };
 pub const factions = @import("factions/factions.zig");
 pub const wanted = @import("police/wanted.zig");
+pub const pursuit = @import("police/pursuit.zig");
+pub const save = @import("save/save.zig");
 
 // Re-export commonly used types at top level for convenience.
 pub const Vec2 = math.vec2.Vec2;
@@ -74,4 +76,6 @@ test {
     _ = @import("weapons/weapon.zig");
     _ = @import("factions/factions.zig");
     _ = @import("police/wanted.zig");
+    _ = @import("police/pursuit.zig");
+    _ = @import("save/save.zig");
 }

@@ -33,10 +33,12 @@ fn pollIntent() engine.Intent {
     return intent;
 }
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var gpa_state = std.heap.DebugAllocator(.{}){};
     defer _ = gpa_state.deinit();
     const gpa = gpa_state.allocator();
+    const io = init.io;
+    const cwd = std.Io.Dir.cwd();
 
     // Canonical map comes from data; procedural layout is the fallback
     // so the demo still runs if the JSON is broken.
@@ -93,6 +95,23 @@ pub fn main() !void {
     var prng = std.Random.DefaultPrng.init(1234);
     var rng = prng.random();
 
+    // Patrol officers on the main roads.
+    var officers = std.ArrayList(engine.pursuit.Officer).empty;
+    defer officers.deinit(gpa);
+    const posts = [_]engine.Vec2{
+        .{ .x = 12 * 32 + 7, .y = 6 * 32 + 7 },
+        .{ .x = 13 * 32 + 7, .y = 18 * 32 + 7 },
+    };
+    for (posts) |post| {
+        try officers.append(gpa, .{ .pos = post });
+    }
+
+    var busted_timer: f32 = 0;
+    var banner: ?[]const u8 = null;
+    var banner_timer: f32 = 0;
+    var was_save = false;
+    var was_load = false;
+
     const screen_w = 1280;
     const screen_h = 720;
     rl.initWindow(screen_w, screen_h, "PUTKA Engine - mini city demo");
@@ -101,7 +120,38 @@ pub fn main() !void {
 
     while (!rl.windowShouldClose()) {
         const frame_dt: f32 = @min(rl.getFrameTime(), 0.1);
-        const steps = sim.push(frame_dt);
+
+        if (busted_timer > 0) {
+            busted_timer -= frame_dt;
+            if (busted_timer <= 0) {
+                // Morning after: back on the street, record clean.
+                player.pos = .{ .x = 13 * 32, .y = 11 * 32 };
+                car.pos = .{
+                    .x = 12 * 32 + 16,
+                    .y = 10 * 32 + 16,
+                };
+                car.heading = std.math.pi * 0.5;
+                car.speed = 0;
+                car.driver = false;
+                driving = false;
+                ecam.mode = .player;
+                wanted.heat = 0;
+                shots.clearRetainingCapacity();
+                npcs.clearRetainingCapacity();
+                for (spawns) |sp| {
+                    npcs.append(gpa, .{
+                        .pos = .{ .x = sp.x, .y = sp.y },
+                        .faction = sp.f,
+                        .timer = 1,
+                    }) catch {};
+                }
+                officers.clearRetainingCapacity();
+                for (posts) |post| {
+                    officers.append(gpa, .{ .pos = post }) catch {};
+                }
+            }
+        } else {
+            const steps = sim.push(frame_dt);
         var s: u32 = 0;
         while (s < steps) : (s += 1) {
             const intent = pollIntent();
@@ -167,6 +217,67 @@ pub fn main() !void {
                 }
             }
             wanted.update(sim.dt, !intent.fire);
+
+            // Patrol responds to the wanted level; sustained contact busts.
+            const target = if (driving) car.pos else player.center();
+            for (officers.items) |*o| {
+                if (o.update(map, &rng, sim.dt, target, wanted.level())) {
+                    busted_timer = 3.0;
+                    wanted.heat = 0;
+                }
+            }
+        }
+
+        // Save/load are frame-rate actions, not simulation.
+        const save_pressed = rl.isKeyDown(.f5) and !was_save;
+        const load_pressed = rl.isKeyDown(.f9) and !was_load;
+        was_save = rl.isKeyDown(.f5);
+        was_load = rl.isKeyDown(.f9);
+        if (save_pressed and busted_timer <= 0) {
+            const snap = engine.save.Snapshot{
+                .player_pos = player.pos,
+                .car_pos = car.pos,
+                .car_heading = car.heading,
+                .car_speed = car.speed,
+                .driving = driving,
+                .wanted_heat = wanted.heat,
+                .npcs = npcs.items,
+                .officers = officers.items,
+            };
+            if (engine.save.saveToDir(cwd, io, engine.save.SAVE_NAME, snap, gpa)) {
+                banner = "SAVED";
+                banner_timer = 2;
+            } else |_| {
+                banner = "SAVE FAILED";
+                banner_timer = 2;
+            }
+        }
+        if (load_pressed and busted_timer <= 0) {
+            if (engine.save.loadFromDir(cwd, io, engine.save.SAVE_NAME, gpa)) |loaded| {
+                var parsed = loaded;
+                defer parsed.deinit();
+                const snap = parsed.value;
+                player.pos = snap.player_pos;
+                car.pos = snap.car_pos;
+                car.heading = snap.car_heading;
+                car.speed = snap.car_speed;
+                driving = snap.driving;
+                car.driver = snap.driving;
+                ecam.mode = if (snap.driving) .vehicle else .player;
+                wanted.heat = snap.wanted_heat;
+                shots.clearRetainingCapacity();
+                npcs.clearRetainingCapacity();
+                npcs.appendSlice(gpa, snap.npcs) catch {};
+                officers.clearRetainingCapacity();
+                officers.appendSlice(gpa, snap.officers) catch {};
+                banner = "LOADED";
+                banner_timer = 2;
+            } else |_| {
+                banner = "LOAD FAILED";
+                banner_timer = 2;
+            }
+        }
+        if (banner_timer > 0) banner_timer -= frame_dt;
         }
 
         const focus = if (driving) car.pos else player.center();
@@ -249,8 +360,23 @@ pub fn main() !void {
                 rl.Color.ray_white,
             );
         }
+        // Officers: dark blue on patrol, flashing red/blue in pursuit.
+        const siren = @mod(@as(i32, @intFromFloat(rl.getTime() * 4)), 2) == 0;
+        for (officers.items) |o| {
+            const c = o.center();
+            const col = if (o.state == .chase)
+                if (siren) rl.Color.red else rl.Color.blue
+            else
+                rl.Color.dark_blue;
+            rl.drawCircle(
+                @as(i32, @intFromFloat(c.x)),
+                @as(i32, @intFromFloat(c.y)),
+                engine.pursuit.OFFICER_SIZE.x * 0.5,
+                col,
+            );
+        }
         rl.endMode2D();
-        rl.drawText("WASD/arrows: move/drive  E: car  SPACE/J/click: fire  SHIFT: sprint", 10, 10, 20, rl.Color.ray_white);
+        rl.drawText("WASD/arrows: move/drive  E: car  SPACE/J/click: fire  F5: save  F9: load", 10, 10, 20, rl.Color.ray_white);
         var hud_buf: [64]u8 = undefined;
         const alive: u32 = blk: {
             var n: u32 = 0;
@@ -263,6 +389,17 @@ pub fn main() !void {
             const col = if (wanted.level() == 0) rl.Color.ray_white else rl.Color.red;
             rl.drawText(hud, 10, 36, 20, col);
         } else |_| {}
+        if (banner_timer > 0) {
+            if (banner) |msg| {
+                var msg_buf: [32]u8 = undefined;
+                if (std.fmt.bufPrintZ(&msg_buf, "{s}", .{msg})) |m| {
+                    rl.drawText(m, 10, 62, 20, rl.Color.gold);
+                } else |_| {}
+            }
+        }
+        if (busted_timer > 0) {
+            rl.drawText("BUSTED", screen_w / 2 - 110, screen_h / 2 - 30, 60, rl.Color.red);
+        }
         rl.drawFPS(screen_w - 100, 10);
         rl.endDrawing();
     }
