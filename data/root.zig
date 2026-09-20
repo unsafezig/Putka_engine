@@ -14,3 +14,5 @@ pub const mission_m2b = @embedFile("putka/missions/m2b.json");
 pub const dlg_civilian = @embedFile("putka/dialogue/civilian.json");
 pub const dlg_gang = @embedFile("putka/dialogue/gang.json");
 pub const dlg_m1_choice = @embedFile("putka/dialogue/m1_choice.json");
+pub const sprites_tiles = @embedFile("putka/sprites/tiles.json");
+pub const sprites_vehicles = @embedFile("putka/sprites/vehicles.json");

@@ -30,11 +30,14 @@ pub const World = struct {
     high: u32,
     sectors: []Sector,
     active: []bool,
+    /// District letter per sector (owns a copy of the JSON grid).
+    blocks: []u8,
 
     pub fn deinit(self: *World) void {
         for (self.sectors) |*s| s.deinit();
         self.alloc.free(self.sectors);
         self.alloc.free(self.active);
+        self.alloc.free(self.blocks);
         self.* = undefined;
     }
 
@@ -66,6 +69,15 @@ pub const World = struct {
         const s = self.atConst(c.sx, c.sy) orelse return null;
         const l = Sector.localTile(self.sector_size, tx, ty);
         return s.map.get(l.x, l.y);
+    }
+
+    /// Mutable tile write (editor). False outside the world.
+    pub fn set(self: *World, tx: i32, ty: i32, tile: Tile) bool {
+        const c = Sector.containing(self.sector_size, tx, ty);
+        const s = self.at(c.sx, c.sy) orelse return false;
+        const l = Sector.localTile(self.sector_size, tx, ty);
+        s.map.set(l.x, l.y, tile);
+        return true;
     }
 
     pub fn worldToTile(_: *const World, world: Vec2) struct { x: i32, y: i32 } {
@@ -108,6 +120,35 @@ pub const World = struct {
     }
 };
 
+/// Serialize back to the districts JSON format (editor writes).
+/// Tile-level edits are NOT preserved — districts regenerate from blocks.
+/// Caller frees the returned bytes.
+pub fn saveWorldJson(alloc: std.mem.Allocator, name: []const u8, world: World) ![]u8 {
+    const rows = try alloc.alloc([]u8, world.high);
+    defer {
+        for (rows) |r| alloc.free(r);
+        alloc.free(rows);
+    }
+    var sy: u32 = 0;
+    while (sy < world.high) : (sy += 1) {
+        rows[sy] = try alloc.alloc(u8, world.wide);
+        var sx: u32 = 0;
+        while (sx < world.wide) : (sx += 1) {
+            rows[sy][sx] = world.blocks[@as(usize, sy) * world.wide + sx];
+        }
+    }
+    const Out = struct {
+        name: []const u8,
+        sector_size: u32,
+        grid: []const []const u8,
+    };
+    return std.json.Stringify.valueAlloc(alloc, Out{
+        .name = name,
+        .sector_size = world.sector_size,
+        .grid = rows,
+    }, .{});
+}
+
 /// Build a world from a districts description. Roads pave every sector's
 /// top row and left column so the grid connects; interiors by block type.
 pub fn loadWorldJson(alloc: std.mem.Allocator, text: []const u8) !World {
@@ -129,12 +170,14 @@ pub fn loadWorldJson(alloc: std.mem.Allocator, text: []const u8) !World {
         .high = high,
         .sectors = try alloc.alloc(Sector, @as(usize, wide) * high),
         .active = try alloc.alloc(bool, @as(usize, wide) * high),
+        .blocks = try alloc.alloc(u8, @as(usize, wide) * high),
     };
     var done: usize = 0;
     errdefer {
         for (world.sectors[0..done]) |*s| s.deinit();
         alloc.free(world.sectors);
         alloc.free(world.active);
+        alloc.free(world.blocks);
     }
     @memset(world.active, true);
     var sy: u32 = 0;
@@ -145,7 +188,9 @@ pub fn loadWorldJson(alloc: std.mem.Allocator, text: []const u8) !World {
             const idx = @as(usize, sy) * wide + sx;
             world.sectors[idx] = try Sector.init(alloc, @intCast(sx), @intCast(sy), j.sector_size);
             done = idx + 1;
-            try paveSector(&world.sectors[idx], j.grid[sy][sx]);
+            const block = j.grid[sy][sx];
+            world.blocks[idx] = block;
+            try paveSector(&world.sectors[idx], block);
         }
     }
     return world;
@@ -242,4 +287,20 @@ test "bad districts rejected" {
     try std.testing.expectError(WorldError.BadSectorSize, loadWorldJson(std.testing.allocator,
         \\{"sector_size":4,"grid":["R"]}
     ));
+}
+
+test "save then load keeps blocks and paving" {
+    const alloc = std.testing.allocator;
+    var w = try loadWorldJson(alloc,
+        \\{"name":"t","sector_size":16,"grid":["RC","PR"]}
+    );
+    defer w.deinit();
+    const bytes = try saveWorldJson(alloc, "t2", w);
+    defer alloc.free(bytes);
+    var back = try loadWorldJson(alloc, bytes);
+    defer back.deinit();
+    try std.testing.expectEqual(w.wide, back.wide);
+    try std.testing.expectEqual(w.high, back.high);
+    try std.testing.expectEqualSlices(u8, w.blocks, back.blocks);
+    try std.testing.expect(back.get(3, 3).?.solid);
 }

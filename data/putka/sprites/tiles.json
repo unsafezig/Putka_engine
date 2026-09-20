@@ -1,0 +1,11 @@
+{
+  "road_plain_a": { "file": "putka/tiles/road_plain_a.png", "scale": 2.0, "source": "kenney-cc0" },
+  "road_plain_b": { "file": "putka/tiles/road_plain_b.png", "scale": 2.0, "source": "kenney-cc0" },
+  "road_plain_c": { "file": "putka/tiles/road_plain_c.png", "scale": 2.0, "source": "kenney-cc0" },
+  "road_v": { "file": "putka/tiles/road_v.png", "scale": 2.0, "source": "kenney-cc0" },
+  "road_h": { "file": "putka/tiles/road_h.png", "scale": 2.0, "source": "kenney-cc0" },
+  "ground_a": { "file": "putka/tiles/ground_a.png", "scale": 2.0, "source": "kenney-cc0" },
+  "ground_b": { "file": "putka/tiles/ground_b.png", "scale": 2.0, "source": "kenney-cc0" },
+  "walk_a": { "file": "putka/tiles/walk_a.png", "scale": 2.0, "source": "kenney-cc0" },
+  "walk_b": { "file": "putka/tiles/walk_b.png", "scale": 2.0, "source": "kenney-cc0" }
+}

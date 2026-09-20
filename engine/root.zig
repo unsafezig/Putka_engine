@@ -45,6 +45,10 @@ pub const save = @import("save/save.zig");
 pub const story = @import("story/story.zig");
 pub const missions = @import("missions/mission.zig");
 pub const dialogue = @import("dialogue/dialogue.zig");
+pub const rendering = struct {
+    pub const sprites = @import("rendering/sprites.zig");
+    pub const autotile = @import("rendering/autotile.zig");
+};
 
 // Re-export commonly used types at top level for convenience.
 pub const Vec2 = math.vec2.Vec2;
@@ -90,4 +94,6 @@ test {
     _ = @import("story/story.zig");
     _ = @import("missions/mission.zig");
     _ = @import("dialogue/dialogue.zig");
+    _ = @import("rendering/sprites.zig");
+    _ = @import("rendering/autotile.zig");
 }

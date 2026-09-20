@@ -1,0 +1,6 @@
+{
+  "sedan": { "file": "putka/vehicles/sedan.png", "scale": 2.0, "source": "putka-original" },
+  "sedan_brake": { "file": "putka/vehicles/sedan_brake.png", "scale": 2.0, "source": "putka-original" },
+  "glow": { "file": "putka/fx/glow.png", "scale": 1.0, "source": "putka-original" },
+  "vignette": { "file": "putka/fx/vignette.png", "scale": 1.0, "source": "putka-original" }
+}

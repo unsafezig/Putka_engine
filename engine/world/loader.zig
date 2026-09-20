@@ -39,6 +39,18 @@ fn tileFromGlyph(g: u8) LoadError!Tile {
     };
 }
 
+pub fn glyphFromTile(t: Tile) u8 {
+    return switch (t.type) {
+        .grass => '.',
+        .road => 'R',
+        .sidewalk => 's',
+        .water => '~',
+        .wall => '#',
+        .building => 'B',
+        .bridge => '=',
+    };
+}
+
 pub fn loadMapJson(allocator: std.mem.Allocator, text: []const u8) !TileMap {
     const parsed = try std.json.parseFromSlice(MapJson, allocator, text, .{
         .ignore_unknown_fields = true,
@@ -68,6 +80,36 @@ pub fn loadMapJson(allocator: std.mem.Allocator, text: []const u8) !TileMap {
         y += 1;
     }
     return map;
+}
+
+/// Serialize a map back to the same JSON format (editor writes).
+/// Caller frees the returned bytes.
+pub fn saveMapJson(allocator: std.mem.Allocator, name: []const u8, map: TileMap) ![]u8 {
+    const rows = try allocator.alloc([]u8, map.height);
+    defer {
+        for (rows) |r| allocator.free(r);
+        allocator.free(rows);
+    }
+    var y: u32 = 0;
+    while (y < map.height) : (y += 1) {
+        rows[y] = try allocator.alloc(u8, map.width);
+        var x: u32 = 0;
+        while (x < map.width) : (x += 1) {
+            rows[y][x] = glyphFromTile(map.tiles[@as(usize, y) * map.width + x]);
+        }
+    }
+    const Out = struct {
+        name: []const u8,
+        width: u32,
+        height: u32,
+        tiles: []const []const u8,
+    };
+    return std.json.Stringify.valueAlloc(allocator, Out{
+        .name = name,
+        .width = map.width,
+        .height = map.height,
+        .tiles = rows,
+    }, .{});
 }
 
 const std = @import("std");
@@ -116,8 +158,7 @@ test "load rejects bad input" {
     );
 }
 
-test "legend covers all glyphs" {
-    const text =
+test "legend covers all glyphs" {    const text =
         \\{"tiles":[ "Rs~#B=." ]}
     ;
     var map = try loadMapJson(std.testing.allocator, text);
@@ -132,4 +173,22 @@ test "legend covers all glyphs" {
     try std.testing.expect(map.get(6, 0).?.type == .grass);
     try std.testing.expect(map.get(2, 0).?.solid);
     try std.testing.expect(!map.get(5, 0).?.solid);
+}
+
+test "save then load roundtrips tiles" {
+    const alloc = std.testing.allocator;
+    var map = try TileMap.init(alloc, 4, 3);
+    defer map.deinit();
+    map.buildMiniCity();
+    const bytes = try saveMapJson(alloc, "rt", map);
+    defer alloc.free(bytes);
+    var back = try loadMapJson(alloc, bytes);
+    defer back.deinit();
+    try std.testing.expectEqual(map.width, back.width);
+    try std.testing.expectEqual(map.height, back.height);
+    var i: usize = 0;
+    while (i < map.tiles.len) : (i += 1) {
+        try std.testing.expectEqual(map.tiles[i].type, back.tiles[i].type);
+        try std.testing.expectEqual(map.tiles[i].solid, back.tiles[i].solid);
+    }
 }

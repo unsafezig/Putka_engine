@@ -27,6 +27,12 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
 
+    // PUTKA art (embedded PNG). Same pattern as data.
+    const assets_mod = b.addModule("putka_assets", .{
+        .root_source_file = b.path("assets/root.zig"),
+        .target = target,
+    });
+
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("game/putka/main.zig"),
         .target = target,
@@ -34,6 +40,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "engine", .module = engine_mod },
             .{ .name = "putka_data", .module = data_mod },
+            .{ .name = "putka_assets", .module = assets_mod },
             .{ .name = "raylib", .module = raylib_mod },
             .{ .name = "raygui", .module = raygui_mod },
         },

@@ -6,8 +6,33 @@ const std = @import("std");
 const engine = @import("engine");
 const putka_data = @import("putka_data");
 const rl = @import("raylib");
+const textures = @import("textures.zig");
 
 const TILE_PX: i32 = 32;
+
+const Sprites = engine.rendering.sprites;
+const Autotile = engine.rendering.autotile;
+const Tiles = engine.world.tiles.Tiles;
+
+/// Textured sprite for a tile, or null for the flat fallback
+/// (buildings/walls/water get real art in slice 2).
+fn tileSpriteId(tiles: Tiles, tx: i32, ty: i32) ?Sprites.SpriteId {
+    const t = tiles.get(tx, ty) orelse return null;
+    return switch (t.type) {
+        .road, .bridge => switch (Autotile.roadKind(tiles, tx, ty)) {
+            .plain => switch (Autotile.variant(tx, ty, 3)) {
+                0 => .road_plain_a,
+                1 => .road_plain_b,
+                else => .road_plain_c,
+            },
+            .straight_v => .road_v,
+            .straight_h => .road_h,
+        },
+        .grass => if (Autotile.variant(tx, ty, 2) == 0) .ground_a else .ground_b,
+        .sidewalk => if (Autotile.variant(tx, ty, 2) == 0) .walk_a else .walk_b,
+        else => null,
+    };
+}
 
 fn tileColor(t: engine.TileType) rl.Color {
     return switch (t) {
@@ -174,6 +199,25 @@ pub fn main(init: std.process.Init) !void {
     defer rl.closeWindow();
     rl.setTargetFPS(60);
 
+    // Headless screenshot mode for agents/CI: `--shot <frames>`.
+    var shot_frames: ?u32 = null;
+    {
+        const args = try init.minimal.args.toSlice(gpa);
+        var i: usize = 0;
+        while (i < args.len) : (i += 1) {
+            if (std.mem.eql(u8, args[i], "--shot") and i + 1 < args.len) {
+                shot_frames = std.fmt.parseInt(u32, args[i + 1], 10) catch null;
+            }
+        }
+    }
+    var shot_no: u32 = 0;
+
+    // Sprite catalog (JSON) + GPU textures (needs a GL context).
+    const tile_cat = try engine.rendering.sprites.loadTilesJson(gpa, putka_data.sprites_tiles);
+    var texm = try textures.TexManager.load(gpa);
+    defer texm.unload();
+    var brake_light = false;
+
     while (!rl.windowShouldClose()) {
         const frame_dt: f32 = @min(rl.getFrameTime(), 0.1);
 
@@ -212,6 +256,7 @@ pub fn main(init: std.process.Init) !void {
             was_action = intent.action;
             if (driving) {
                 car.update(tiles, car_params, intent, sim.dt);
+                brake_light = intent.move.y > 0.2 and car.speed > 60;
                 // Keep the walker's body glued to the seat.
                 player.pos = .{
                     .x = car.pos.x - engine.characters.player.PLAYER_SIZE.x * 0.5,
@@ -491,16 +536,33 @@ pub fn main(init: std.process.Init) !void {
         while (ty <= ty1) : (ty += 1) {
             var tx: i32 = tx0;
             while (tx <= tx1) : (tx += 1) {
-                const t = tiles.get(tx, ty) orelse continue;
-                var col = tileColor(t.type);
                 const center = engine.Vec2{
                     .x = @as(f32, @floatFromInt(tx)) * 32 + 16,
                     .y = @as(f32, @floatFromInt(ty)) * 32 + 16,
                 };
-                if (!world.sectorActiveAt(center)) {
-                    col = .{ .r = col.r / 2, .g = col.g / 2, .b = col.b / 2, .a = col.a };
+                const dim = !world.sectorActiveAt(center);
+                if (tileSpriteId(tiles, tx, ty)) |sid| {
+                    const tex = texm.get(sid);
+                    // Ground recedes (dark, quiet); roads stay bright.
+                    const base: rl.Color = switch (sid) {
+                        .ground_a, .ground_b => .{ .r = 150, .g = 150, .b = 168, .a = 255 },
+                        else => .white,
+                    };
+                    const tint: rl.Color = if (dim) .{ .r = base.r / 2, .g = base.g / 2, .b = base.b / 2, .a = base.a } else base;
+                    rl.drawTextureEx(
+                        tex,
+                        .{ .x = @as(f32, @floatFromInt(tx * TILE_PX)), .y = @as(f32, @floatFromInt(ty * TILE_PX)) },
+                        0,
+                        tile_cat.get(sid).scale,
+                        tint,
+                    );
+                } else if (tiles.get(tx, ty)) |t| {
+                    var col = tileColor(t.type);
+                    if (dim) {
+                        col = .{ .r = col.r / 2, .g = col.g / 2, .b = col.b / 2, .a = col.a };
+                    }
+                    rl.drawRectangle(tx * TILE_PX, ty * TILE_PX, TILE_PX, TILE_PX, col);
                 }
-                rl.drawRectangle(tx * TILE_PX, ty * TILE_PX, TILE_PX, TILE_PX, col);
             }
         }
         // Sector borders (streaming debug view).
@@ -516,18 +578,28 @@ pub fn main(init: std.process.Init) !void {
                 }
             }
         }
-        // Parked/driven car (rotated body + windshield hint).
-        rl.drawRectanglePro(
-            .{
-                .x = car.pos.x - car_params.length * 0.5,
-                .y = car.pos.y - car_params.width * 0.5,
-                .width = car_params.length,
-                .height = car_params.width,
-            },
-            .{ .x = car_params.length * 0.5, .y = car_params.width * 0.5 },
-            car.heading * 180.0 / std.math.pi,
-            rl.Color.sky_blue,
-        );
+        // Car sprite: brake variant under braking, headlight halos ahead.
+        {
+            const tex = texm.get(if (brake_light) .sedan_brake else .sedan);
+            const rot = car.heading * 180.0 / std.math.pi;
+            if (driving) {
+                const fwd = car.forward();
+                const side = engine.Vec2{ .x = -fwd.y, .y = fwd.x };
+                const glow = texm.get(.glow);
+                for ([2]f32{ -1, 1 }) |s| {
+                    const hp = car.pos.add(fwd.scale(30)).add(side.scale(s * 9));
+                    rl.drawTextureEx(glow, .{ .x = hp.x - 9, .y = hp.y - 9 }, 0, 1.5, .{ .r = 255, .g = 240, .b = 200, .a = 160 });
+                }
+            }
+            rl.drawTexturePro(
+                tex,
+                .{ .x = 0, .y = 0, .width = 22, .height = 11 },
+                .{ .x = car.pos.x - 22, .y = car.pos.y - 11, .width = 44, .height = 22 },
+                .{ .x = 22, .y = 11 },
+                rot,
+                .white,
+            );
+        }
         // Player (hidden while driving).
         if (!driving) {
             rl.drawRectangleRec(
@@ -597,6 +669,19 @@ pub fn main(init: std.process.Init) !void {
             }
         }
         rl.endMode2D();
+        // Night mood over the world (under the HUD): cold tint + vignette.
+        rl.drawRectangle(0, 0, screen_w, screen_h, .{ .r = 8, .g = 10, .b = 28, .a = 70 });
+        {
+            const vig = texm.get(.vignette);
+            rl.drawTexturePro(
+                vig,
+                .{ .x = 0, .y = 0, .width = 320, .height = 180 },
+                .{ .x = 0, .y = 0, .width = @as(f32, @floatFromInt(screen_w)), .height = @as(f32, @floatFromInt(screen_h)) },
+                .{ .x = 0, .y = 0 },
+                0,
+                .white,
+            );
+        }
         rl.drawText("WASD/arrows: move/drive  E: car  SPACE/J/click: fire  T: talk  M: mission  F5/F9: save/load", 10, 10, 20, rl.Color.ray_white);
         var hud_buf: [64]u8 = undefined;
         const alive: u32 = blk: {
@@ -681,8 +766,16 @@ pub fn main(init: std.process.Init) !void {
                 } else |_| {}
             }
         }
-        rl.drawFPS(screen_w - 100, 10);
+        rl.drawFPS(screen_w - 100, screen_h - 30);
         rl.endDrawing();
+
+        if (shot_frames) |n| {
+            shot_no += 1;
+            if (shot_no >= n) {
+                rl.takeScreenshot("shot.png");
+                break;
+            }
+        }
     }
 }
 
@@ -719,6 +812,18 @@ test "districts.json loads a connected 3x3 city" {
     // Streaming starts fully active, narrows to the focus sector.
     try std.testing.expectEqual(@as(usize, 9), world.activeAround(.{ .x = 784, .y = 784 }, 1));
     try std.testing.expectEqual(@as(usize, 1), world.activeAround(.{ .x = 100, .y = 100 }, 0));
+}
+
+test "every sprite id resolves to licensed art" {
+    const tiles = try engine.rendering.sprites.loadTilesJson(std.testing.allocator, putka_data.sprites_tiles);
+    const vehicles = try engine.rendering.sprites.loadVehiclesJson(std.testing.allocator, putka_data.sprites_vehicles);
+    inline for (std.meta.fields(engine.rendering.sprites.SpriteId)) |f| {
+        const id: engine.rendering.sprites.SpriteId = @enumFromInt(f.value);
+        const e = engine.rendering.sprites.resolve(tiles, vehicles, id);
+        try std.testing.expect(e.file.len > 0);
+        try std.testing.expect(e.source.len > 0);
+        try std.testing.expect(e.scale > 0);
+    }
 }
 
 test "demo missions load, gate and branch" {

@@ -15,6 +15,7 @@
         "engine",
         "game",
         "data",
+        "assets",
         "README.md",
         "LICENSE",
     },
